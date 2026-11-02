@@ -184,7 +184,7 @@ C:\AI-SMP\
 ### Prerequisites
 
 - Node.js 18+
-- Python 3.11+
+- Python 3.9-3.12 (3.11 recommended; the pinned dependencies do not build on Python 3.13+)
 - MongoDB running on localhost:27017
 
 ### Start the AI Service
@@ -192,13 +192,21 @@ C:\AI-SMP\
 ```bash
 cd ai-service
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # Mac/Linux
+
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+# Windows (cmd)
+venv\Scripts\activate.bat
+# macOS/Linux
+source venv/bin/activate
+
 pip install -r requirements.txt
 python run.py
 ```
 
 ### Start the Backend
+
+Copy `backend/.env.example` to `backend/.env`, then start the service:
 
 ```bash
 cd backend
@@ -207,6 +215,8 @@ npm run dev
 ```
 
 ### Start the Frontend
+
+Copy `frontend/.env.example` to `frontend/.env.local` if you need to change the API URL (optional), then start the service:
 
 ```bash
 cd frontend
@@ -217,6 +227,8 @@ npm run dev
 Open http://localhost:5173 in your browser.
 
 ### Environment Variables
+
+The repository includes `.env.example` files for each service. Actual `.env` files are gitignored.
 
 **AI Service** (`ai-service/.env`):
 ```
@@ -229,10 +241,18 @@ DEBUG=True
 ```
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/ai-smp
-JWT_SECRET=your_secret_key
+JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRE=7d
 AI_SERVICE_URL=http://localhost:8000
+NODE_ENV=development
 ```
+
+**Frontend** (`frontend/.env.local`, optional):
+```
+VITE_API_BASE_URL=http://localhost:5000/api
+```
+
+`VITE_API_BASE_URL` defaults to `http://localhost:5000/api` when unset.
 
 ---
 
