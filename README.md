@@ -75,7 +75,7 @@ AI-SMP/
 ## Getting Started
 
 ### Prerequisites
-- Python 3.9+
+- Python 3.9-3.12 (3.11 recommended; the pinned dependencies do not build on Python 3.13+)
 - Node.js 18+
 - MongoDB (running on localhost:27017)
 
@@ -84,15 +84,26 @@ AI-SMP/
 ```bash
 cd ai-service
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate    # Linux/Mac
+
+# Windows (PowerShell)
+.\venv\Scripts\Activate.ps1
+# Windows (cmd)
+venv\Scripts\activate.bat
+# macOS/Linux
+source venv/bin/activate
+
 pip install -r requirements.txt
 python run.py
-
+```
 
 Runs on: `http://localhost:8000`
 
+> If PowerShell blocks the activation script, run
+> `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` for the current session.
+
 ### 2. Backend (Terminal 2)
+
+Copy `backend/.env.example` to `backend/.env`, then start the service:
 
 ```bash
 cd backend
@@ -111,6 +122,8 @@ npm run dev
 ```
 
 Runs on: `http://localhost:5173`
+
+If the backend is not running on `http://localhost:5000`, copy `frontend/.env.example` to `frontend/.env.local` and set `VITE_API_BASE_URL` (for example, `http://localhost:5050/api`).
 
 ## API Endpoints
 
@@ -202,6 +215,8 @@ Runs on: `http://localhost:5173`
 
 ## Environment Variables
 
+The repository includes `.env.example` files for all three services. Copy the relevant example to the actual environment file and adjust values as needed. Actual `.env` files are gitignored.
+
 ### ai-service/.env
 ```
 HOST=0.0.0.0
@@ -213,11 +228,25 @@ DEBUG=True
 ```
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/ai-smp
-JWT_SECRET=ai-smp-secret-key-2026
+JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRE=7d
 AI_SERVICE_URL=http://localhost:8000
 NODE_ENV=development
 ```
+
+Generate a strong JWT secret instead of using the placeholder:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### frontend/.env.local (optional)
+```
+# Backend API base URL, including the /api suffix
+VITE_API_BASE_URL=http://localhost:5000/api
+```
+
+`VITE_API_BASE_URL` defaults to `http://localhost:5000/api` when unset. Set it when the backend runs on a different host or port, or use a relative value such as `/api` when the frontend is served behind a reverse proxy.
 
 ## License
 
