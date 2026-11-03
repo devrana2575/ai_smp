@@ -208,7 +208,9 @@ class PredictionService:
     def predict(self, symbol: str) -> dict:
         raw_df = data_service.fetch_stock_data(symbol, "6mo")
         clean_df = data_service.clean_data(raw_df)
-        featured_df = feature_engineering.transform(clean_df)
+        # Skip the training-only target here: its final value is unknown, and
+        # dropping NaN targets would shift inference back by one trading day.
+        featured_df = feature_engineering.transform(clean_df, include_target=False)
 
         feature_cols = feature_engineering.get_feature_columns()
         latest_data = featured_df[feature_cols].values[-1:].copy()

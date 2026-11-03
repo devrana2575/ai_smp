@@ -43,14 +43,19 @@ class FeatureEngineering:
         df["Next_Day_Close"] = df["Close"].shift(-1)
         return df
 
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, df: pd.DataFrame, include_target: bool = True) -> pd.DataFrame:
         df = df.copy()
         df = self.add_sma(df)
         df = self.add_rsi(df)
         df = self.add_macd(df)
         df = self.add_bollinger_bands(df)
         df = self.add_volume_features(df)
-        df = self.add_target(df)
+
+        # The target is only needed for training. Inference keeps the latest
+        # row so the model predicts the next trading day from today's features.
+        if include_target:
+            df = self.add_target(df)
+
         df = df.dropna().reset_index(drop=True)
         return df
 
