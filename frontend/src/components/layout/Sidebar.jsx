@@ -56,6 +56,51 @@ const menuItems = [
       </svg>
     ),
   },
+  {
+    name: "Walk-forward",
+    path: "/research/walk-forward",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M5 20h14M5 4h14" />
+      </svg>
+    ),
+  },
+  {
+    name: "Return Experiments",
+    path: "/research/return-forecasting",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19V5m0 14h16M8 15l3-4 3 2 4-6" />
+      </svg>
+    ),
+  },
+  {
+    name: "Backtesting",
+    path: "/research/backtesting",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l5-5 4 3 7-8M14 7h5v5" />
+      </svg>
+    ),
+  },
+  {
+    name: "Model Registry",
+    path: "/research/registry",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+      </svg>
+    ),
+  },
+  {
+    name: "Monitoring",
+    path: "/research/monitoring",
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      </svg>
+    ),
+  },
 ];
 
 const Sidebar = () => {

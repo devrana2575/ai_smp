@@ -73,6 +73,18 @@ const StockDetailPage = () => {
             <Link to={`/compare/${symbol}`} className="btn-secondary text-sm">
               Compare Models
             </Link>
+            <Link
+              to={`/research/walk-forward?symbol=${encodeURIComponent(symbol)}`}
+              className="btn-secondary text-sm"
+            >
+              Walk-forward
+            </Link>
+            <Link
+              to={`/research/backtesting?symbol=${encodeURIComponent(symbol)}`}
+              className="btn-secondary text-sm"
+            >
+              Backtest
+            </Link>
           </div>
         }
       />

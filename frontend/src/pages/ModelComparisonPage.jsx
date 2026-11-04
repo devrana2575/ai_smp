@@ -23,7 +23,7 @@ const ModelComparisonPage = () => {
     try {
       const data = await predictionService.getComparison(symbol);
       setComparison(data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load comparison data");
     } finally {
       setLoading(false);

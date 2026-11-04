@@ -25,7 +25,7 @@ const ComparisonPage = () => {
     try {
       const data = await companyService.getAll();
       setCompanies(data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load companies");
     } finally {
       setInitialLoading(false);
@@ -38,7 +38,7 @@ const ComparisonPage = () => {
     try {
       const data = await predictionService.getEvaluation(selectedSymbol);
       setEvaluation(data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load evaluation. Train models first.");
     } finally {
       setLoading(false);
