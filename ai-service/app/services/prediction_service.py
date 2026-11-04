@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from app.services.data_service import data_service
+from app.services.data_service import data_service, validate_symbol
 from app.services.feature_engineering import feature_engineering
 from app.services.model_manager import model_manager
 from app.models.linear_regression import LinearRegressionModel
@@ -33,11 +33,19 @@ class PredictionService:
         }
 
     def _prepare_data(self, symbol: str, period: str = None):
+        symbol = validate_symbol(symbol)
+
         if period is None:
             period = settings.TRAINING_PERIOD
 
         raw_df = data_service.fetch_stock_data(symbol, period)
         clean_df = data_service.clean_data(raw_df)
+        if len(clean_df) < feature_engineering.MIN_HISTORY_ROWS:
+            raise ValueError(
+                f"Not enough historical data for {symbol}: received "
+                f"{len(clean_df)} rows, need at least "
+                f"{feature_engineering.MIN_HISTORY_ROWS}"
+            )
         featured_df = feature_engineering.transform(clean_df)
 
         feature_cols = feature_engineering.get_feature_columns()
@@ -88,6 +96,7 @@ class PredictionService:
         }
 
     def train_all_models(self, symbol: str, period: str = None) -> dict:
+        symbol = validate_symbol(symbol)
         period = period or settings.TRAINING_PERIOD
         (X_train, X_test, y_train, y_test), featured_df = self._prepare_data(symbol, period)
         trained_at = datetime.now(timezone.utc).isoformat()
@@ -149,6 +158,7 @@ class PredictionService:
         }
 
     def evaluate_saved_models(self, symbol: str, period: str = None) -> dict:
+        symbol = validate_symbol(symbol)
         evaluation_data = model_manager.load_evaluation_data(symbol)
 
         if evaluation_data is None:
@@ -206,43 +216,95 @@ class PredictionService:
         return self.get_evaluation(symbol)
 
     def predict(self, symbol: str) -> dict:
+        symbol = validate_symbol(symbol)
+
         raw_df = data_service.fetch_stock_data(symbol, "6mo")
         clean_df = data_service.clean_data(raw_df)
-        # Skip the training-only target here: its final value is unknown, and
-        # dropping NaN targets would shift inference back by one trading day.
-        featured_df = feature_engineering.transform(clean_df, include_target=False)
+        if len(clean_df) < feature_engineering.MIN_HISTORY_ROWS:
+            raise ValueError(
+                f"Not enough historical data for {symbol}: received "
+                f"{len(clean_df)} rows, need at least "
+                f"{feature_engineering.MIN_HISTORY_ROWS}"
+            )
 
+        # Inference-only transformation: no next-day target and no target
+        # dropna, so the most recent trading day is retained.
+        featured_df = feature_engineering.transform_features(clean_df)
         feature_cols = feature_engineering.get_feature_columns()
-        latest_data = featured_df[feature_cols].values[-1:].copy()
 
-        current_price = float(clean_df["Close"].iloc[-1])
+        latest_row = featured_df.iloc[-1]
+        latest_data = latest_row[feature_cols].to_numpy(dtype=float).reshape(1, -1)
+
+        if not np.all(np.isfinite(latest_data)):
+            raise ValueError(
+                "Latest feature vector contains missing or non-finite values"
+            )
+
+        # Read the price from the same row as the feature vector. Using
+        # clean_df's latest close here while feeding an older feature row was
+        # the source of the original one-session misalignment.
+        current_price = float(latest_row["Close"])
+        if not np.isfinite(current_price) or current_price <= 0:
+            raise ValueError("Latest close price is invalid")
 
         predictions = {}
         model_predictions = []
 
-        for name in self.models.keys():
-            model = model_manager.load_model(symbol, name)
-            if model is None:
+        for name, ModelClass in self.models.items():
+            saved_model = model_manager.load_model(symbol, name)
+            if saved_model is None:
                 predictions[name] = {"prediction": None, "error": "Model not trained"}
                 continue
 
-            if name == "svr":
+            model_instance = ModelClass()
+            model_instance.model = saved_model
+
+            # SVR saves a StandardScaler next to the fitted estimator. Always
+            # use that saved scaler during inference; skipping it or refitting
+            # it would feed the estimator a different feature scale than it
+            # saw during training.
+            if hasattr(model_instance, "scaler"):
                 scaler = model_manager.load_scaler(symbol, name)
-                if scaler is not None:
-                    from sklearn.preprocessing import StandardScaler
-                    scaled_data = scaler.transform(latest_data)
-                    pred = float(model.predict(scaled_data)[0])
-                else:
-                    pred = float(model.predict(latest_data)[0])
-            else:
-                pred = float(model.predict(latest_data)[0])
+                if scaler is None:
+                    predictions[name] = {
+                        "prediction": None,
+                        "error": "Model scaler not found",
+                    }
+                    continue
+                model_instance.scaler = scaler
+
+            try:
+                pred = float(model_instance.predict(latest_data)[0])
+            except Exception as exc:
+                predictions[name] = {
+                    "prediction": None,
+                    "error": f"Prediction failed: {exc}",
+                }
+                continue
+
+            if not np.isfinite(pred):
+                predictions[name] = {
+                    "prediction": None,
+                    "error": "Model returned a non-finite prediction",
+                }
+                continue
 
             predictions[name] = {"prediction": round(pred, 2)}
             model_predictions.append(pred)
 
-        ensemble_prediction = round(float(np.mean(model_predictions)), 2) if model_predictions else None
+        # If no models are available, keep the existing response shape and
+        # return a transparent empty prediction instead of fabricating a value.
+        ensemble_prediction = (
+            round(float(np.mean(model_predictions)), 2)
+            if model_predictions
+            else None
+        )
 
-        if ensemble_prediction and current_price:
+        if (
+            ensemble_prediction is not None
+            and ensemble_prediction != 0
+            and current_price > 0
+        ):
             diff_pct = ((ensemble_prediction - current_price) / current_price) * 100
             if diff_pct > 1:
                 signal = "BUY"
@@ -263,9 +325,11 @@ class PredictionService:
         }
 
     def get_model_status(self, symbol: str) -> dict:
+        symbol = validate_symbol(symbol)
         return model_manager.get_all_models_status(symbol)
 
     def get_evaluation(self, symbol: str) -> dict:
+        symbol = validate_symbol(symbol)
         stored_metrics = model_manager.load_metrics(symbol)
         models, metadata = self._unpack_metrics(stored_metrics)
 
