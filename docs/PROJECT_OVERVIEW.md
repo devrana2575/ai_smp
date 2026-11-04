@@ -183,7 +183,7 @@ C:\AI-SMP\
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+ (or 22.13+/24+)
 - Python 3.9-3.12 (3.11 recommended; the pinned dependencies do not build on Python 3.13+)
 - MongoDB running on localhost:27017
 

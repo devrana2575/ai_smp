@@ -20,6 +20,13 @@ dist/
 build/
 *.log
 
+# Generated research artifacts (local evidence; documented results live in docs/)
+ai-service/evaluation_reports/
+ai-service/research_reports/
+ai-service/backtesting_reports/
+ai-service/model_registry/
+ai-service/monitoring/
+
 # OS / editor
 .DS_Store
 Thumbs.db
