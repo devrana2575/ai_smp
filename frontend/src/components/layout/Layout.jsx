@@ -9,6 +9,11 @@ const pageTitles = {
   "/compare": "Algorithm Comparison",
   "/results": "Results",
   "/reports": "Reports",
+  "/research/walk-forward": "Walk-forward Evaluation",
+  "/research/return-forecasting": "Return-target Experiments",
+  "/research/backtesting": "Backtesting Laboratory",
+  "/research/registry": "Model Registry",
+  "/research/monitoring": "Prediction Monitoring",
 };
 
 const getPageTitle = (pathname) => {

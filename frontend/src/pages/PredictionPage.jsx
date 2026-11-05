@@ -76,7 +76,7 @@ const PredictionPage = () => {
     try {
       const status = await predictionService.getModelStatus(selectedSymbol);
       setModelStatus(status);
-    } catch (error) {
+    } catch {
       setModelStatus(null);
     }
   }, [selectedSymbol]);

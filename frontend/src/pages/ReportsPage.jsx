@@ -22,7 +22,7 @@ const ReportsPage = () => {
     try {
       const data = await companyService.getAll();
       setCompanies(data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load companies");
     } finally {
       setInitialLoading(false);
@@ -42,7 +42,7 @@ const ReportsPage = () => {
         setEvaluation(data);
         setPredictions([]);
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to load report");
     } finally {
       setLoading(false);

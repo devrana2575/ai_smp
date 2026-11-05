@@ -13,6 +13,11 @@ import ModelComparisonPage from "./pages/ModelComparisonPage";
 import ComparisonPage from "./pages/ComparisonPage";
 import ResultsPage from "./pages/ResultsPage";
 import ReportsPage from "./pages/ReportsPage";
+import WalkForwardPage from "./pages/WalkForwardPage";
+import ReturnForecastingPage from "./pages/ReturnForecastingPage";
+import BacktestingPage from "./pages/BacktestingPage";
+import ModelRegistryPage from "./pages/ModelRegistryPage";
+import MonitoringPage from "./pages/MonitoringPage";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -44,6 +49,12 @@ function AppRoutes() {
         <Route path="/compare/:symbol" element={<ModelComparisonPage />} />
         <Route path="/results" element={<ResultsPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/research" element={<Navigate to="/research/walk-forward" replace />} />
+        <Route path="/research/walk-forward" element={<WalkForwardPage />} />
+        <Route path="/research/return-forecasting" element={<ReturnForecastingPage />} />
+        <Route path="/research/backtesting" element={<BacktestingPage />} />
+        <Route path="/research/registry" element={<ModelRegistryPage />} />
+        <Route path="/research/monitoring" element={<MonitoringPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" />} />
