@@ -167,7 +167,9 @@ Security and behavioral tests include:
 - In-process locks are not safe for multiple AI-service writers across hosts.
   Run one research writer or add a shared lock/store.
 - Rate limiting is in-memory per Express instance. A multi-instance deployment
-  needs a shared rate-limit store.
+  needs a shared rate-limit store. The global `/api/` budget defaults to 600
+  requests per 15 minutes in production and 3,000 in development; tune it with
+  `API_RATE_LIMIT_MAX` and `API_RATE_LIMIT_WINDOW_MS`.
 - Job failures may expose an exception type/message to authenticated users; do
   not place secrets in exception messages.
 - No independent penetration test, dependency-vulnerability audit, or formal

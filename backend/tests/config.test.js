@@ -47,6 +47,20 @@ test("production config rejects weak secrets and wildcard CORS", () => {
   assert.ok(problems.some((item) => item.includes("wildcard CORS")));
 });
 
+test("rate-limit settings must be positive", () => {
+  const problems = collectConfigProblems({
+    NODE_ENV: "development",
+    JWT_SECRET: "local-development-secret",
+    MONGODB_URI: "mongodb://localhost:27017/ai-smp",
+    CORS_ORIGINS: "http://localhost:5173",
+    AI_SERVICE_TIMEOUT_MS: "180000",
+    API_RATE_LIMIT_WINDOW_MS: "0",
+    API_RATE_LIMIT_MAX: "0",
+  });
+  assert.ok(problems.some((item) => item.includes("API_RATE_LIMIT_WINDOW_MS")));
+  assert.ok(problems.some((item) => item.includes("API_RATE_LIMIT_MAX")));
+});
+
 test("development config accepts explicit local origins", () => {
   const problems = collectConfigProblems({
     NODE_ENV: "development",

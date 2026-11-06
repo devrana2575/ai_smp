@@ -274,7 +274,7 @@ node --check src/routes/research.routes.js
 node --check src/controllers/research.controller.js
 ```
 
-Current baseline in this audit: `7 passed`; ESLint passes.
+Current baseline in this audit: `8 passed`; ESLint passes.
 
 ### Frontend
 

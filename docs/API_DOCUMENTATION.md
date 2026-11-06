@@ -147,12 +147,13 @@ HTTP status usage:
 
 | Scope | Limit | Window | Response |
 |-------|-------|--------|----------|
-| Global Express `/api/` limiter | 100 requests | 15 minutes | `{ "detail": "Too many requests..." }` |
+| Global Express `/api/` limiter | 600 production / 3,000 development requests (configurable) | 15 minutes | `{ "detail": "Too many requests..." }` |
 | Research read limiter | 240 requests | 15 minutes | Structured `rate_limited` |
 | Research expensive limiter | 8 requests | 15 minutes | Structured `rate_limited` |
 
 The global limiter is applied before the research router, so the effective
-budget is the tighter of the applicable limits.
+budget is the tighter of the applicable limits. Tune the global limiter with
+`API_RATE_LIMIT_WINDOW_MS` and `API_RATE_LIMIT_MAX`.
 
 Express-to-AI-service HTTP calls use `AI_SERVICE_TIMEOUT_MS`
 (default 180,000 ms). A timeout is translated to HTTP 502 with code

@@ -27,7 +27,7 @@ monitoring, versioned APIs, and an analytics UI.
 | Monitoring | Prediction tracking, actual-outcome updates, completed-prediction metrics, data freshness, feature drift (PSI) |
 | APIs | Existing Express API preserved; additive authenticated `/api/v2` research APIs with validation, pagination, rate limits, structured errors |
 | Analytics UI | Walk-forward, return experiments, backtesting, registry, and monitoring pages under `/research` |
-| Quality | 109 Python tests, 7 Node tests, frontend build, ESLint, Ruff, dependency audits |
+| Quality | 109 Python tests, 8 Node tests, frontend build, ESLint, Ruff, dependency audits |
 
 The legacy training and prediction paths are unchanged by the research features.
 Research reports and registry artifacts are stored separately from
@@ -398,7 +398,7 @@ npm test
 npm run lint
 ```
 
-Current result in this audit: **7 Node tests passed**; ESLint passes.
+Current result in this audit: **8 Node tests passed**; ESLint passes.
 
 From `frontend/`:
 
