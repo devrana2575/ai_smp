@@ -147,12 +147,13 @@ HTTP status usage:
 
 | Scope | Limit | Window | Response |
 |-------|-------|--------|----------|
-| Global Express `/api/` limiter | 100 requests | 15 minutes | `{ "detail": "Too many requests..." }` |
+| Global Express `/api/` limiter | 600 production / 3,000 development requests (configurable) | 15 minutes | `{ "detail": "Too many requests..." }` |
 | Research read limiter | 240 requests | 15 minutes | Structured `rate_limited` |
 | Research expensive limiter | 8 requests | 15 minutes | Structured `rate_limited` |
 
 The global limiter is applied before the research router, so the effective
-budget is the tighter of the applicable limits.
+budget is the tighter of the applicable limits. Tune the global limiter with
+`API_RATE_LIMIT_WINDOW_MS` and `API_RATE_LIMIT_MAX`.
 
 Express-to-AI-service HTTP calls use `AI_SERVICE_TIMEOUT_MS`
 (default 180,000 ms). A timeout is translated to HTTP 502 with code
@@ -198,11 +199,15 @@ they require `Authorization: Bearer <jwt>`.
 | GET | `/predictions/evaluation/:symbol` | Yes | Stored evaluation for a symbol |
 | GET | `/predictions/stock-data/:symbol?period=1y` | Yes | Cleaned OHLCV rows |
 | GET | `/predictions/stock-info/:symbol` | Yes | Company/quote metadata |
+| GET | `/predictions/market-regime/:symbol` | Yes | Descriptive bull/bear/neutral regime indicator |
 | GET | `/predictions/history?symbol=...` | Yes | Latest 50 saved predictions |
 | GET | `/predictions/compare/:symbol` | Yes | Model comparison + data-point count |
 | GET | `/predictions/dashboard` | Yes | Dashboard counts and latest predictions |
 
 The legacy prediction path uses `saved_models/` and is unchanged by v2.
+The market-regime response classifies the latest close against 50- and
+200-session simple moving averages with 60-session momentum. It is a
+descriptive label for historical prices, not a forecast or investment advice.
 
 ## 6. Research v2 endpoints
 

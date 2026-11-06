@@ -41,9 +41,20 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "1mb" }));
 
+const rateLimitWindowMs = Number(
+  process.env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000
+);
+const rateLimitMax = Number(
+  process.env.API_RATE_LIMIT_MAX ||
+    (process.env.NODE_ENV === "production" ? 600 : 3000)
+);
+
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: rateLimitWindowMs,
+  max: rateLimitMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.method === "OPTIONS",
   message: { detail: "Too many requests, please try again later" },
 });
 app.use("/api/", limiter);

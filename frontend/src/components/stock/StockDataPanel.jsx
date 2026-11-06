@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 import StockChart from "../charts/StockChart";
+import MarketRegimeCard from "./MarketRegimeCard";
 import { predictionService } from "../../services/predictionService";
 
 const PERIODS = [
@@ -158,6 +159,8 @@ const StockDataPanel = ({ symbol, company = null, actions = null, onClear = null
           </div>
         </div>
       </div>
+
+      <MarketRegimeCard symbol={symbol} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 md:gap-4">
         <div className="bg-white rounded-xl shadow-md p-4">

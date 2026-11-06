@@ -59,6 +59,18 @@ const collectConfigProblems = (env = process.env) => {
     problems.push("AI_SERVICE_TIMEOUT_MS must be a positive number");
   }
 
+  const rateLimitWindowMs = Number(
+    env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000
+  );
+  if (!Number.isFinite(rateLimitWindowMs) || rateLimitWindowMs <= 0) {
+    problems.push("API_RATE_LIMIT_WINDOW_MS must be a positive number");
+  }
+
+  const rateLimitMax = Number(env.API_RATE_LIMIT_MAX || 600);
+  if (!Number.isInteger(rateLimitMax) || rateLimitMax <= 0) {
+    problems.push("API_RATE_LIMIT_MAX must be a positive integer");
+  }
+
   return problems;
 };
 

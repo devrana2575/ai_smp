@@ -21,7 +21,18 @@ const companySchema = new mongoose.Schema(
     },
     subCategory: {
       type: String,
-      enum: ["Steel", "Aluminium", "Iron Ore", "Coal", "Zinc", "Copper", "Nickel", "Silver", "Gold"],
+      enum: [
+        "Steel",
+        "Aluminium",
+        "Iron Ore",
+        "Coal",
+        "Zinc",
+        "Copper",
+        "Nickel",
+        "Silver",
+        "Gold",
+        "Manganese",
+      ],
       default: "Steel",
     },
     exchange: {

@@ -1,6 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from app.services.data_service import data_service
-from app.schemas.prediction_schema import StockDataResponse, StockInfoResponse
+from app.services.market_regime_service import market_regime_service
+from app.schemas.prediction_schema import (
+    MarketRegimeResponse,
+    StockDataResponse,
+    StockInfoResponse,
+)
 
 router = APIRouter(prefix="/api/stock-data", tags=["Stock Data"])
 
@@ -21,5 +26,17 @@ def get_stock_info(symbol: str):
     try:
         info = data_service.get_stock_info(symbol)
         return StockInfoResponse(**info)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{symbol}/regime", response_model=MarketRegimeResponse)
+def get_market_regime(symbol: str):
+    try:
+        raw_df = data_service.fetch_stock_data(symbol, "1y")
+        clean_df = data_service.clean_data(raw_df)
+        return MarketRegimeResponse(
+            **market_regime_service.classify(clean_df, symbol)
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

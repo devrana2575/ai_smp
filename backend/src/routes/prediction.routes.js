@@ -11,6 +11,7 @@ router.get("/evaluation-summary", auth, predictionController.getEvaluationSummar
 router.get("/evaluation/:symbol", auth, predictionController.getEvaluation);
 router.get("/stock-data/:symbol", auth, predictionController.getStockData);
 router.get("/stock-info/:symbol", auth, predictionController.getStockInfo);
+router.get("/market-regime/:symbol", auth, predictionController.getMarketRegime);
 router.get("/history", auth, predictionController.getPredictionHistory);
 router.get("/compare/:symbol", auth, predictionController.getModelComparison);
 router.get("/dashboard", auth, predictionController.getDashboardStats);

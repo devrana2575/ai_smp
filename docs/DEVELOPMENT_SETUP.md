@@ -257,7 +257,7 @@ ruff check .
 .\venv\Scripts\python.exe -m compileall -q app tests scripts
 ```
 
-Current baseline in this audit: `104 passed`; Ruff `0.16.7` and compileall pass.
+Current baseline in this audit: `109 passed`; Ruff `0.16.7` and compileall pass.
 The tests set a test-only service token in `tests/conftest.py`. If your
 environment has no `ruff`, use the pinned `ruff` from `requirements-dev.txt` or
 a globally installed matching version.
@@ -274,7 +274,7 @@ node --check src/routes/research.routes.js
 node --check src/controllers/research.controller.js
 ```
 
-Current baseline in this audit: `7 passed`; ESLint passes.
+Current baseline in this audit: `8 passed`; ESLint passes.
 
 ### Frontend
 

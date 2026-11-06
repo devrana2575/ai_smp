@@ -326,7 +326,7 @@ Uses **Recharts** library for interactive visualizations:
 
 ### Company Management
 
-- 10 pre-seeded Indian Metal & Mining companies
+- 20 pre-seeded Indian Metal & Mining companies
 - Admin can add, update, or soft-delete companies
 - Companies searchable by name, category, or symbol
 
@@ -356,7 +356,7 @@ Uses **Recharts** library for interactive visualizations:
 | POST | `/api/companies` | Yes + Admin | Add new company |
 | PUT | `/api/companies/:id` | Yes + Admin | Update company |
 | DELETE | `/api/companies/:id` | Yes + Admin | Soft delete company |
-| POST | `/api/companies/seed` | Yes | Seed 10 default companies |
+| POST | `/api/companies/seed` | Yes | Seed 20 default companies |
 
 #### Prediction Routes (`/api/predictions`)
 
@@ -408,7 +408,7 @@ Uses **Recharts** library for interactive visualizations:
   symbol: String,        // Required, unique, uppercase (e.g., "HINDALCO.NS")
   name: String,          // Required, trimmed
   category: String,      // enum: ["Metal", "Mining"]
-  subCategory: String,   // enum: ["Steel", "Aluminium", "Iron Ore", "Coal", "Zinc", "Copper", "Nickel", "Silver", "Gold"]
+  subCategory: String,   // enum: ["Steel", "Aluminium", "Iron Ore", "Coal", "Zinc", "Copper", "Nickel", "Silver", "Gold", "Manganese"]
   exchange: String,      // enum: ["NSE", "BSE"], default: "NSE"
   isActive: Boolean,     // default: true (soft delete)
   addedBy: ObjectId,     // Ref: User
@@ -546,3 +546,13 @@ Dashboard loads
 | HINDZINC.NS | Hindustan Zinc | Metal | Zinc |
 | SAIL.NS | Steel Authority of India | Metal | Steel |
 | JINDALSTEL.NS | Jindal Steel & Power | Metal | Steel |
+| APLAPOLLO.NS | APL Apollo Tubes | Metal | Steel |
+| HINDCOPPER.NS | Hindustan Copper | Metal | Copper |
+| JSL.NS | Jindal Stainless | Metal | Steel |
+| JINDALSAW.NS | Jindal Saw | Metal | Steel |
+| RATNAMANI.NS | Ratnamani Metals & Tubes | Metal | Steel |
+| SHYAMMETL.NS | Shyam Metalics and Energy | Metal | Steel |
+| WELCORP.NS | Welspun Corp | Metal | Steel |
+| GPIL.NS | Godawari Power & Ispat | Metal | Steel |
+| MOIL.NS | MOIL Limited | Mining | Manganese |
+| GMDCLTD.NS | Gujarat Mineral Development Corporation | Mining | Coal |
