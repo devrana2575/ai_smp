@@ -216,8 +216,18 @@ that a return-target formulation beats the zero-return benchmark on this data.
 ## 9. Reproducibility and limitations
 
 - Each report stores a SHA-256 fingerprint of the cleaned OHLCV data, the
-  configuration, fold metadata, and the report schema version.
-- Live `yfinance` history can change; a rerun may use revised data.
+  evaluation configuration and its SHA-256 hash, fold metadata, feature schema,
+  symbol, dataset period, random seed, generation timestamp, and report schema
+  version under a top-level `reproducibility` block.
+- The report `data` block records the data source (`yfinance` or
+  `synthetic_test_data`) and an `is_synthetic` flag.
+- Re-running with the same input file, code, seed, and configuration reproduces
+  the same splits and model results. Re-running against live `yfinance` history
+  can change results because vendors revise history or add a current daily bar.
+- Tests use deterministic injected OHLCV data. The repository also includes
+  `ai-service/tests/fixtures/synthetic_ohlcv.csv`, an artificial 320-row series
+  for offline checks. It is not market data and must be labelled as synthetic in
+  any report derived from it.
 - The evaluation uses a single fixed holdout and five requested folds; no
   repeated nested cross-validation is performed.
 - Model selection is limited to the five predefined models and a fixed ensemble.

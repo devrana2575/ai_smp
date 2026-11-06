@@ -111,11 +111,21 @@ cd ai-service
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+Copy-Item .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Put the generated value in `ai-service/.env` as `SERVICE_AUTH_TOKEN`, then run:
+
+```powershell
 python run.py
 ```
 
 On macOS/Linux use `source venv/bin/activate`. If PowerShell blocks activation:
 `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+The API fails closed if the service token is missing. Interactive docs are
+disabled unless `ENABLE_DOCS=true`; do not enable them publicly.
 
 Optional development/test dependencies:
 
@@ -138,6 +148,9 @@ Generate a strong JWT secret rather than using the placeholder:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
+Set `AI_SERVICE_TOKEN` in `backend/.env` to the same value as the AI service's
+`SERVICE_AUTH_TOKEN`. The backend forwards it to the internal service.
+
 ### 3. Frontend (port 5173)
 
 ```powershell
@@ -157,10 +170,18 @@ Open <http://localhost:5173>. If the backend is not on port 5000, copy
 ### `ai-service/.env`
 
 ```dotenv
-HOST=0.0.0.0
+ENVIRONMENT=development
+HOST=127.0.0.1
 PORT=8000
-DEBUG=True
+DEBUG=false
+ENABLE_DOCS=false
+SERVICE_AUTH_TOKEN=<generated-service-token>
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080
 ```
+
+`SERVICE_AUTH_TOKEN` is required for API requests; the service fails closed if
+it is absent. Production startup also rejects `DEBUG=true`, wildcard CORS,
+malformed origins, and tokens shorter than 32 characters.
 
 Research defaults can be overridden without changing the legacy training path:
 
@@ -201,14 +222,20 @@ AI service are bounded by `AI_SERVICE_TIMEOUT_MS`.
 ### `backend/.env`
 
 ```dotenv
+NODE_ENV=development
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/ai-smp
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXPIRE=7d
 AI_SERVICE_URL=http://localhost:8000
+AI_SERVICE_TOKEN=<same value as SERVICE_AUTH_TOKEN>
 AI_SERVICE_TIMEOUT_MS=180000
-NODE_ENV=development
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
+
+Backend startup validation rejects missing/placeholder/weak secrets, missing
+MongoDB configuration, wildcard production CORS, malformed origins, and invalid
+timeouts without printing secret values.
 
 ### `frontend/.env.local` (optional)
 
@@ -246,7 +273,13 @@ Writes `research_reports/return_forecasting/` reports and a family-level summary
 ```
 
 Writes JSON reports, equity-curve CSVs, trade CSVs, strategy-comparison CSVs, and
-`backtesting_reports/backtest_summary.csv`.
+`backtesting_reports/backtest_summary.csv`. Reports include configurable
+cost/slippage cross-product and threshold sensitivity scenarios, causal
+signal/execution validation, assumptions, and reproducibility metadata.
+
+A deterministic artificial dataset for offline tests lives at
+`ai-service/tests/fixtures/synthetic_ohlcv.csv`. It is not market data; reports
+derived from it must be labelled synthetic.
 
 ### Analytics UI
 
@@ -264,14 +297,23 @@ GET views require authentication.
 
 ### Register and activate a model
 
-1. Train a candidate: `POST /api/v2/models/{symbol}/train`
-2. Approve it: `POST /api/v2/models/{symbol}/approve/{version}` with
-   `{"approved": true}`
-3. Activate it: `POST /api/v2/models/{symbol}/activate/{version}` with
-   `{"approved": true}`
-4. Predict with the active version: `POST /api/v2/forecasting/predict/{symbol}`
-5. Roll back with `POST /api/v2/models/{symbol}/rollback`
+1. Run a completed walk-forward evaluation for the symbol.
+2. Train a candidate: `POST /api/v2/models/{symbol}/train`
+3. Attach the evaluation report:
+   `POST /api/v2/models/{symbol}/evidence/{version}` with
+   `{"report_id": "{SYMBOL}_walk_forward.json"}`.
+4. Review metrics, baseline comparison, feature schema, seed, report hash, and
+   `candidate_vs_active`.
+5. Approve it: `POST /api/v2/models/{symbol}/approve/{version}` with
+   `{"approved": true, "evaluation_report_id": "{SYMBOL}_walk_forward.json"}`.
+6. Activate it: `POST /api/v2/models/{symbol}/activate/{version}` with
+   `{"approved": true}`. Activation requires prior approval with evidence.
+7. Predict with the active version: `POST /api/v2/forecasting/predict/{symbol}`
+8. Roll back with `POST /api/v2/models/{symbol}/rollback`
    (`{"approved": true}` required)
+
+Training never approves or activates a candidate. Approval never happens
+automatically, and no research action writes to `saved_models/`.
 
 All expensive operations run as background jobs; poll `GET /api/v2/jobs/{job_id}`.
 
@@ -341,12 +383,12 @@ From `ai-service/`:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest -q
-ruff check app tests scripts
+ruff check .
 .\venv\Scripts\python.exe -m compileall -q app tests scripts
 ```
 
-Current result: **89 Python tests passed**; Ruff passes with the project
-configuration.
+Current result in this audit: **104 Python tests passed**; Ruff 0.16.7 and
+compileall pass. A small number of httpx/TestClient deprecation warnings remain.
 
 From `backend/`:
 
@@ -355,7 +397,7 @@ npm test
 npm run lint
 ```
 
-Current result: **3 Node tests passed**; ESLint passes with no errors.
+Current result in this audit: **7 Node tests passed**; ESLint passes.
 
 From `frontend/`:
 
@@ -364,8 +406,12 @@ npm run lint
 npm run build
 ```
 
-Current result: ESLint passes; the production Vite build succeeds (a chunk-size
-warning is expected for the single-page bundle).
+Run these after frontend changes; a chunk-size warning is expected for the
+single-page bundle and is not a build failure.
+
+CI is defined in `.github/workflows/ci.yml`. It runs the Python, backend, and
+frontend checks above on pushes and pull requests. Do not mark a workflow
+successful unless these commands actually pass.
 
 Dependency checks: `npm ls --depth=0` succeeds in both Node packages. Python
 runtime imports were verified with the pinned environment. A non-force
@@ -389,22 +435,39 @@ re-running the full test/build suite.
 
 ## Security notes
 
-- The FastAPI service is intended to be internal. Express is the authentication
-  and authorization boundary for browser clients.
-- All `/api/v2` routes require a JWT. Experiment, training, activation, rollback,
-  and actual-outcome update routes require the `admin` role; registered-model
-  prediction requires authentication. Rate limits are applied at both the global
-  Express level and the research router level.
+- The FastAPI service is internal-only. Every `/api/*` route requires a shared
+  `X-Internal-Service-Token`; only `/health` is public. If the token is not
+  configured, protected routes fail closed with HTTP 503. Express forwards the
+  token server-side from `AI_SERVICE_TOKEN`.
+- Express remains the browser authentication/authorization boundary. All
+  `/api/v2` routes require a JWT. Experiment, training, evidence attachment,
+  approval, activation, rollback, deactivation, and actual-outcome update routes
+  require the `admin` role; registered-model prediction requires authentication.
+  Rate limits are applied at both the global Express level and the research
+  router level.
+- Production startup validation rejects debug mode, weak/missing secrets,
+  wildcard CORS, malformed origins, and invalid timeouts without echoing secret
+  values. `DEBUG` defaults to false; interactive FastAPI docs are opt-in.
 - Symbols, job IDs, versions, artifact paths, pagination, numeric ranges, and
-  request bodies are validated. Artifact paths are constrained to the registry
-  root, and monitoring paths to the monitoring root.
+  request bodies are validated. Registry paths cannot live inside
+  `saved_models/`; artifact names must be plain `.pkl` files; report IDs must
+  resolve inside the report directory.
+- Candidate approval requires a completed, schema-matched walk-forward report
+  with metrics and a baseline comparison. Activation requires prior explicit
+  approval and attached evidence; it never auto-approves. Evidence includes the
+  report ID/hash, dataset period/fingerprint, seed, config, feature schema, and
+  metrics.
 - AI-service HTTP calls have a configurable timeout (`AI_SERVICE_TIMEOUT_MS`,
   default 180 seconds). Background jobs run in-process; do not expose the AI
   service publicly.
-- Never commit `.env` files, JWTs, model artifacts, or generated monitoring data.
-  The repository's `.gitignore` covers environment files and common build output.
+- Never commit `.env` files, JWTs, service tokens, model artifacts, or generated
+  monitoring data. The repository's `.gitignore` covers environment files and
+  common build output.
 - Research output is stored separately from legacy production models. Only an
   explicit, audited activation changes the v2 registered-model path.
+
+See [docs/SECURITY.md](docs/SECURITY.md) and
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for details and residual risks.
 
 ---
 

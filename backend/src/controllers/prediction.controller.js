@@ -1,8 +1,6 @@
-const axios = require("axios");
+const { client } = require("../services/aiClient");
 const Prediction = require("../models/Prediction");
 const Company = require("../models/Company");
-
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
 const VALID_ALGORITHMS = [
   "linear_regression",
@@ -27,9 +25,10 @@ exports.trainModels = async (req, res) => {
     const { symbol } = req.params;
     const { period } = req.body || { period: "1y" };
 
-    const response = await axios.post(`${AI_SERVICE_URL}/api/train/${symbol}`, {
-      period,
-    });
+    const response = await client.post(
+      `/api/train/${encodeURIComponent(symbol)}`,
+      { period }
+    );
 
     res.json(response.data);
   } catch (error) {
@@ -47,7 +46,9 @@ exports.predict = async (req, res) => {
         ? requestedAlgorithm
         : "ensemble";
 
-    const response = await axios.post(`${AI_SERVICE_URL}/api/predict/${symbol}`);
+    const response = await client.post(
+      `/api/predict/${encodeURIComponent(symbol)}`
+    );
     const predictionData = response.data;
 
     let predictedPrice = predictionData.predicted_price;
@@ -94,7 +95,9 @@ exports.predict = async (req, res) => {
 exports.getModelStatus = async (req, res) => {
   try {
     const { symbol } = req.params;
-    const response = await axios.get(`${AI_SERVICE_URL}/api/model-status/${symbol}`);
+    const response = await client.get(
+      `/api/model-status/${encodeURIComponent(symbol)}`
+    );
     res.json(response.data);
   } catch (error) {
     const message = error.response?.data?.detail || error.message;
@@ -105,7 +108,9 @@ exports.getModelStatus = async (req, res) => {
 exports.getEvaluation = async (req, res) => {
   try {
     const { symbol } = req.params;
-    const response = await axios.get(`${AI_SERVICE_URL}/api/evaluation/${symbol}`);
+    const response = await client.get(
+      `/api/evaluation/${encodeURIComponent(symbol)}`
+    );
     res.json(response.data);
   } catch (error) {
     const message = error.response?.data?.detail || error.message;
@@ -117,9 +122,10 @@ exports.evaluateModels = async (req, res) => {
   try {
     const { symbol } = req.params;
     const { period } = req.body || { period: "1y" };
-    const response = await axios.post(`${AI_SERVICE_URL}/api/evaluate/${symbol}`, {
-      period,
-    });
+    const response = await client.post(
+      `/api/evaluate/${encodeURIComponent(symbol)}`,
+      { period }
+    );
     res.json(response.data);
   } catch (error) {
     const message = error.response?.data?.detail || error.message;
@@ -129,7 +135,7 @@ exports.evaluateModels = async (req, res) => {
 
 exports.getEvaluationSummary = async (req, res) => {
   try {
-    const response = await axios.get(`${AI_SERVICE_URL}/api/evaluation-summary`, {
+    const response = await client.get("/api/evaluation-summary", {
       timeout: 10000,
     });
     res.json(response.data);
@@ -143,10 +149,10 @@ exports.getStockData = async (req, res) => {
   try {
     const { symbol } = req.params;
     const { period } = req.query;
-    const url = period
-      ? `${AI_SERVICE_URL}/api/stock-data/${symbol}?period=${period}`
-      : `${AI_SERVICE_URL}/api/stock-data/${symbol}`;
-    const response = await axios.get(url);
+    const response = await client.get(
+      `/api/stock-data/${encodeURIComponent(symbol)}`,
+      { params: period ? { period } : {} }
+    );
     res.json(response.data);
   } catch (error) {
     const message = error.response?.data?.detail || error.message;
@@ -157,7 +163,9 @@ exports.getStockData = async (req, res) => {
 exports.getStockInfo = async (req, res) => {
   try {
     const { symbol } = req.params;
-    const response = await axios.get(`${AI_SERVICE_URL}/api/stock-data/${symbol}/info`);
+    const response = await client.get(
+      `/api/stock-data/${encodeURIComponent(symbol)}/info`
+    );
     res.json(response.data);
   } catch (error) {
     const message = error.response?.data?.detail || error.message;
@@ -186,9 +194,12 @@ exports.getModelComparison = async (req, res) => {
   try {
     const { symbol } = req.params;
 
-    const evaluationResponse = await axios.get(`${AI_SERVICE_URL}/api/evaluation/${symbol}`);
-    const historyResponse = await axios.get(
-      `${AI_SERVICE_URL}/api/stock-data/${symbol}?period=1y`
+    const evaluationResponse = await client.get(
+      `/api/evaluation/${encodeURIComponent(symbol)}`
+    );
+    const historyResponse = await client.get(
+      `/api/stock-data/${encodeURIComponent(symbol)}`,
+      { params: { period: "1y" } }
     );
 
     res.json({
@@ -222,10 +233,9 @@ exports.getDashboardStats = async (req, res) => {
     };
 
     try {
-      const evaluationResponse = await axios.get(
-        `${AI_SERVICE_URL}/api/evaluation-summary`,
-        { timeout: 10000 }
-      );
+      const evaluationResponse = await client.get("/api/evaluation-summary", {
+        timeout: 10000,
+      });
       const summary = evaluationResponse.data;
 
       if (summary?.has_evaluation && summary?.best_model) {

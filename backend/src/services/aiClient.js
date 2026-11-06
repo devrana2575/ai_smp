@@ -5,11 +5,19 @@ const AI_SERVICE_URL =
 const AI_SERVICE_TIMEOUT_MS = Number(
   process.env.AI_SERVICE_TIMEOUT_MS || 180000
 );
+const AI_SERVICE_TOKEN = process.env.AI_SERVICE_TOKEN || "";
+
+const serviceHeaders = {
+  "Content-Type": "application/json",
+  ...(AI_SERVICE_TOKEN
+    ? { "X-Internal-Service-Token": AI_SERVICE_TOKEN }
+    : {}),
+};
 
 const client = axios.create({
   baseURL: AI_SERVICE_URL,
   timeout: AI_SERVICE_TIMEOUT_MS,
-  headers: { "Content-Type": "application/json" },
+  headers: serviceHeaders,
 });
 
 const structuredError = (error) => {
@@ -50,6 +58,8 @@ const structuredError = (error) => {
 module.exports = {
   client,
   structuredError,
+  serviceHeaders,
   AI_SERVICE_URL,
   AI_SERVICE_TIMEOUT_MS,
+  AI_SERVICE_TOKEN,
 };

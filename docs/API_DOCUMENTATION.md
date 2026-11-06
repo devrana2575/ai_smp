@@ -67,6 +67,22 @@ operations require `role = "admin"`; promote the account through your MongoDB
 administration if necessary. Never put a JWT in a URL or commit it to source
 control.
 
+### Service-to-service authentication
+
+Browsers authenticate to Express with a JWT. Express authenticates to the
+internal FastAPI service with a separate shared secret:
+
+```http
+X-Internal-Service-Token: <service token>
+```
+
+The AI service requires this header on every `/api/*` route except public
+`/health`. If `SERVICE_AUTH_TOKEN` is not configured, protected routes fail
+closed with HTTP 503. A missing or incorrect header returns HTTP 401 with
+`invalid_service_token`. Browser clients must never call the AI service
+directly and must never receive the service token.
+
+
 ## 3. Error format
 
 Legacy routes generally return:
@@ -104,6 +120,9 @@ Common codes:
 | `job_not_found` | Unknown job ID |
 | `no_active_model` | No active registered model for the symbol |
 | `registry_unavailable` | No active model or registry cannot serve a prediction |
+| `invalid_service_token` | Missing/incorrect internal service token (AI service direct call) |
+| `service_auth_not_configured` | AI service has no service token configured and fails closed |
+| `internal_error` | Unhandled server error; details are not exposed |
 | `registry_error` | Invalid lifecycle operation |
 | `no_prediction` | Active model produced no finite prediction |
 | `ai_service_unavailable` | Express could not reach the AI service or it timed out |
@@ -269,13 +288,26 @@ Body extends the evaluation fields:
   "slippage_bps": 5,
   "max_capital_allocation": 1.0,
   "buy_threshold": 0.005,
-  "sell_threshold": -0.005
+  "sell_threshold": -0.005,
+  "run_sensitivity": true,
+  "cost_scenarios_bps": [0, 5, 10, 25, 50],
+  "slippage_scenarios_bps": [0, 5, 10, 25],
+  "threshold_scenarios": [[0, 0], [0.005, -0.005], [0.01, -0.01], [0.02, -0.02]]
 }
 ```
 
 Constraints: `signal_source` is `selected` or `ensemble`; capital > 0 and
 ≤ 1e12; costs/slippage 0–5,000 bps; allocation (0, 1]; thresholds −1–1;
-`buy_threshold` must be ≥ `sell_threshold` when both are supplied.
+`buy_threshold` must be ≥ `sell_threshold` when both are supplied. At most 20
+scenarios are allowed in each sensitivity list, and every threshold pair must
+satisfy `sell <= buy`. If the sensitivity fields are omitted, the defaults
+shown above are used.
+
+The completed report contains `strategies`, `strategy_comparison`,
+`sensitivity` (cost/slippage cross-product plus threshold scenarios),
+`assumptions`, `reproducibility`, `data`, `warnings`, and `limitations`. All
+scenario runs reuse the same chronological out-of-sample rows and next-open
+execution assumption.
 
 ### 6.4 Reports and jobs
 
@@ -355,15 +387,38 @@ Auth: admin. Expensive. Body:
 Returns `202` with a `candidate_training` job. The result is the candidate
 version entry. The candidate is not active.
 
+#### POST `/api/v2/models/:symbol/evidence/:version`
+
+Auth: admin. Attaches documented walk-forward evaluation evidence to a
+non-active candidate. Body:
+
+```json
+{ "report_id": "TATASTEEL_NS_walk_forward.json" }
+```
+
+`report_id` is optional; when omitted the service uses the symbol's standard
+report file. The report must exist in the configured evaluation report
+directory, have `status = "completed"`, match the candidate symbol and exact
+feature schema, and contain selected-model development metrics plus a baseline
+comparison. The service stores the report ID, SHA-256 hash, generation time,
+dataset period/fingerprint, random seed, evaluation configuration, feature
+schema, selected model, metrics, and baseline comparison in the registry
+entry. Attaching new evidence invalidates any previous approval.
+
 #### POST `/api/v2/models/:symbol/approve/:version`
 
 Auth: admin. Body:
 
 ```json
-{ "approved": true }
+{
+  "approved": true,
+  "evaluation_report_id": "TATASTEEL_NS_walk_forward.json"
+}
 ```
 
-Sets approval metadata. The Express proxy supplies `approved_by` from the
+Approval is evidence-based. The service attaches and validates the walk-forward
+report before setting approval metadata; approval fails if no completed report
+matches the candidate. The Express proxy supplies `approved_by` from the
 authenticated user. Returns the version entry.
 
 #### POST `/api/v2/models/:symbol/activate/:version`
@@ -374,8 +429,10 @@ Auth: admin. Body:
 { "approved": true }
 ```
 
-Validates artifacts and activates the version. `approved` must be true. Returns
-the active version entry.
+Validates that the version was explicitly approved with attached evidence,
+then re-validates the artifact manifest (exact feature schema, target
+formulation, model list, SVR scaler, plain `.pkl` names). Activation never
+approves a candidate automatically. Returns the active version entry.
 
 #### POST `/api/v2/models/:symbol/rollback`
 

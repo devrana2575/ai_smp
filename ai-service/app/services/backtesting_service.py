@@ -12,6 +12,7 @@ market impact, liquidity, borrow, taxes, corporate actions, or intraday fills.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import os
@@ -76,6 +77,78 @@ STRATEGY_DESCRIPTIONS = {
         "current position. Long-only, one position at a time."
     ),
 }
+
+
+DEFAULT_COST_SCENARIOS_BPS: Tuple[float, ...] = (0.0, 5.0, 10.0, 25.0, 50.0)
+DEFAULT_SLIPPAGE_SCENARIOS_BPS: Tuple[float, ...] = (0.0, 5.0, 10.0, 25.0)
+DEFAULT_THRESHOLD_SCENARIOS: Tuple[Tuple[float, float], ...] = (
+    (0.0, 0.0),
+    (0.005, -0.005),
+    (0.01, -0.01),
+    (0.02, -0.02),
+)
+
+
+@dataclass(frozen=True)
+class SensitivityConfig:
+    """Configurable cost, slippage, and threshold sensitivity scenarios."""
+
+    enabled: bool = True
+    cost_scenarios_bps: Tuple[float, ...] = DEFAULT_COST_SCENARIOS_BPS
+    slippage_scenarios_bps: Tuple[float, ...] = DEFAULT_SLIPPAGE_SCENARIOS_BPS
+    threshold_scenarios: Tuple[Tuple[float, float], ...] = (
+        DEFAULT_THRESHOLD_SCENARIOS
+    )
+
+    def validate(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ValueError("sensitivity enabled must be boolean")
+        if not self.cost_scenarios_bps:
+            raise ValueError("cost_scenarios_bps cannot be empty")
+        if not self.slippage_scenarios_bps:
+            raise ValueError("slippage_scenarios_bps cannot be empty")
+        if not self.threshold_scenarios:
+            raise ValueError("threshold_scenarios cannot be empty")
+        if len(self.cost_scenarios_bps) > 20:
+            raise ValueError("At most 20 cost scenarios are allowed")
+        if len(self.slippage_scenarios_bps) > 20:
+            raise ValueError("At most 20 slippage scenarios are allowed")
+        if len(self.threshold_scenarios) > 20:
+            raise ValueError("At most 20 threshold scenarios are allowed")
+        if any(value < 0 or value > 5000 for value in self.cost_scenarios_bps):
+            raise ValueError(
+                "cost scenarios must be between 0 and 5000 basis points"
+            )
+        if any(
+            value < 0 or value > 5000
+            for value in self.slippage_scenarios_bps
+        ):
+            raise ValueError(
+                "slippage scenarios must be between 0 and 5000 basis points"
+            )
+        for pair in self.threshold_scenarios:
+            if len(pair) != 2:
+                raise ValueError(
+                    "each threshold scenario must contain buy and sell values"
+                )
+            buy, sell = pair
+            if not -1 <= sell <= buy <= 1:
+                raise ValueError(
+                    "threshold scenarios require -1 <= sell <= buy <= 1"
+                )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "cost_scenarios_bps": [float(v) for v in self.cost_scenarios_bps],
+            "slippage_scenarios_bps": [
+                float(v) for v in self.slippage_scenarios_bps
+            ],
+            "threshold_scenarios": [
+                [float(buy), float(sell)]
+                for buy, sell in self.threshold_scenarios
+            ],
+        }
 
 
 @dataclass(frozen=True)
@@ -232,6 +305,12 @@ class BacktestingService:
         target_dates = [row["target_date"] for row in rows]
         if len(set(target_dates)) != len(target_dates):
             raise ValueError("Backtest target dates contain duplicates")
+        for row in rows:
+            if row["target_date"] <= row["signal_date"]:
+                raise ValueError(
+                    "Execution date must be strictly after the signal date "
+                    f"for {row['signal_date']}"
+                )
         return rows
 
     # ------------------------------------------------------------------
@@ -473,6 +552,113 @@ class BacktestingService:
         }
 
     # ------------------------------------------------------------------
+    # Sensitivity analysis
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _scenario_metrics(result: Mapping[str, Any]) -> Dict[str, Any]:
+        equity = result.get("equity_metrics") or {}
+        trades = result.get("trade_metrics") or {}
+        return {
+            "total_return_pct": equity.get("total_return_pct"),
+            "annualized_return_pct": equity.get("annualized_return_pct"),
+            "sharpe_ratio": equity.get("sharpe_ratio"),
+            "max_drawdown_pct": equity.get("max_drawdown_pct"),
+            "final_equity": equity.get("final_equity"),
+            "closed_trades": trades.get("closed_trades"),
+            "total_costs": trades.get("total_transaction_costs"),
+        }
+
+    def run_sensitivity(
+        self,
+        rows: Sequence[Mapping[str, Any]],
+        config: Optional[BacktestConfig] = None,
+        sensitivity: Optional[SensitivityConfig] = None,
+    ) -> Dict[str, Any]:
+        """Run cost/slippage and threshold sensitivity scenarios.
+
+        The same chronological out-of-sample rows and execution assumptions are
+        used for every scenario. Only the named configuration value changes.
+        """
+
+        active = config or self.config
+        active.validate()
+        scenarios_config = sensitivity or SensitivityConfig()
+        scenarios_config.validate()
+        if not scenarios_config.enabled:
+            return {
+                "enabled": False,
+                "config": scenarios_config.to_dict(),
+                "scenarios": [],
+                "threshold_sensitivity": [],
+                "warnings": ["Sensitivity analysis was disabled for this run."],
+            }
+
+        base = active.to_dict()
+        scenario_results: List[Dict[str, Any]] = []
+        for cost_bps in scenarios_config.cost_scenarios_bps:
+            for slippage_bps in scenarios_config.slippage_scenarios_bps:
+                scenario_config = BacktestConfig(
+                    **{
+                        **base,
+                        "transaction_cost_bps": float(cost_bps),
+                        "slippage_bps": float(slippage_bps),
+                    }
+                )
+                strategy_results = {}
+                for strategy in (
+                    STRATEGY_MODEL,
+                    STRATEGY_THRESHOLD,
+                    STRATEGY_BUY_HOLD,
+                ):
+                    strategy_results[strategy] = self._scenario_metrics(
+                        self.simulate_strategy(
+                            rows, strategy, scenario_config
+                        )
+                    )
+                scenario_results.append(
+                    {
+                        "transaction_cost_bps": float(cost_bps),
+                        "slippage_bps": float(slippage_bps),
+                        "strategies": strategy_results,
+                    }
+                )
+
+        threshold_results: List[Dict[str, Any]] = []
+        for buy_threshold, sell_threshold in (
+            scenarios_config.threshold_scenarios
+        ):
+            threshold_config = BacktestConfig(
+                **{
+                    **base,
+                    "buy_threshold": float(buy_threshold),
+                    "sell_threshold": float(sell_threshold),
+                }
+            )
+            result = self.simulate_strategy(
+                rows, STRATEGY_THRESHOLD, threshold_config
+            )
+            threshold_results.append(
+                {
+                    "buy_threshold": float(buy_threshold),
+                    "sell_threshold": float(sell_threshold),
+                    **self._scenario_metrics(result),
+                }
+            )
+
+        return {
+            "enabled": True,
+            "config": scenarios_config.to_dict(),
+            "scenarios": scenario_results,
+            "threshold_sensitivity": threshold_results,
+            "warnings": [
+                "Sensitivity scenarios use the same historical path and "
+                "execution assumptions; they are descriptive, not forecasts.",
+                "A scenario that performs well in this sample is not evidence "
+                "of future profitability.",
+            ],
+        }
+
+    # ------------------------------------------------------------------
     # Full symbol run
     # ------------------------------------------------------------------
     def run_symbol(
@@ -482,6 +668,7 @@ class BacktestingService:
         evaluation_report: Optional[Mapping[str, Any]] = None,
         write_report: bool = True,
         output_dir: Optional[str] = None,
+        sensitivity: Optional[SensitivityConfig] = None,
     ) -> Dict[str, Any]:
         active = config or self.config
         active.validate()
@@ -497,6 +684,20 @@ class BacktestingService:
             strategy: self.simulate_strategy(rows, strategy, active)
             for strategy in STRATEGY_NAMES
         }
+        sensitivity_result = self.run_sensitivity(
+            rows, active, sensitivity
+        )
+        evaluation_report_id = (
+            report.get("report_id")
+            or f"{normalized.replace('.', '_')}_walk_forward.json"
+        )
+        evaluation_report_sha256 = hashlib.sha256(
+            json.dumps(
+                _json_safe(dict(report)),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         comparison = compare_strategies(results)
         best_return_strategy = None
         candidates = [
@@ -555,7 +756,10 @@ class BacktestingService:
                 "selection_uses_holdout": False,
             },
             "data": {
-                "source": "yfinance",
+                "source": report.get("data", {}).get("source", "yfinance"),
+                "is_synthetic": bool(
+                    report.get("data", {}).get("is_synthetic", False)
+                ),
                 "evaluation_period": report.get("data", {}).get("period"),
                 "data_fingerprint_sha256": report.get("data", {}).get(
                     "data_fingerprint_sha256"
@@ -564,6 +768,42 @@ class BacktestingService:
                 "first_signal_date": rows[0]["signal_date"],
                 "first_execution_date": rows[0]["target_date"],
                 "last_execution_date": rows[-1]["target_date"],
+            },
+            "reproducibility": {
+                "schema_version": "1.0",
+                "symbol": normalized,
+                "generated_at": self.now_provider()
+                .astimezone(timezone.utc)
+                .isoformat(),
+                "evaluation_report_id": evaluation_report_id,
+                "evaluation_report_sha256": evaluation_report_sha256,
+                "evaluation_config": report.get("config"),
+                "dataset_period": report.get("data", {}).get("period"),
+                "data_source": report.get("data", {}).get(
+                    "source", "yfinance"
+                ),
+                "is_synthetic": bool(
+                    report.get("data", {}).get("is_synthetic", False)
+                ),
+                "data_fingerprint_sha256": report.get("data", {}).get(
+                    "data_fingerprint_sha256"
+                ),
+                "feature_schema": report.get("data", {}).get(
+                    "feature_columns", []
+                ),
+                "model_name": model_name,
+                "model_version": (
+                    report.get("best_performing_model", {})
+                    .get("selected_model")
+                    or model_name
+                ),
+                "random_seed": (report.get("config") or {}).get(
+                    "random_state"
+                ),
+                "backtest_config": active.to_dict(),
+                "sensitivity_config": (
+                    sensitivity or SensitivityConfig()
+                ).to_dict(),
             },
             "methodology": {
                 "signal": (
@@ -592,8 +832,22 @@ class BacktestingService:
                 ),
                 "data_source": "yfinance historical daily OHLCV",
             },
+            "assumptions": [
+                "Predictions are the stored chronological out-of-sample "
+                "walk-forward predictions; no in-sample row is traded.",
+                "A signal is formed using the feature-day close and executed "
+                "at the next session's open.",
+                "Only long positions are allowed, with one position at a time.",
+                "Transaction costs and slippage are proportional basis-point "
+                "charges applied on both entry and exit.",
+                "No market impact, liquidity constraint, borrow, tax, "
+                "corporate action, or intraday fill is modeled.",
+                "The final open position is liquidated at the final close "
+                "when liquidate_at_end is enabled, purely for accounting.",
+            ],
             "strategies": results,
             "strategy_comparison": comparison,
+            "sensitivity": sensitivity_result,
             "highest_simulated_return_strategy": best_return_strategy,
             "warnings": warnings,
             "limitations": [
@@ -602,6 +856,8 @@ class BacktestingService:
                 "The backtest uses one-step close forecasts and does not model "
                 "intraday stops or limit orders.",
                 "Forced liquidation at the final close is an accounting choice.",
+                "Sensitivity grids multiply the number of comparisons; the "
+                "best-looking scenario is especially prone to selection bias.",
                 "No conclusion about live profitability or causality should be "
                 "drawn from these simulated results.",
             ],

@@ -104,6 +104,10 @@ exports.runBacktest = proxy(async (req) => {
     max_capital_allocation: body.max_capital_allocation,
     buy_threshold: body.buy_threshold,
     sell_threshold: body.sell_threshold,
+    run_sensitivity: body.run_sensitivity,
+    cost_scenarios_bps: body.cost_scenarios_bps,
+    slippage_scenarios_bps: body.slippage_scenarios_bps,
+    threshold_scenarios: body.threshold_scenarios,
   });
 });
 

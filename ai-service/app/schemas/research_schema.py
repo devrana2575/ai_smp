@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,16 @@ class BacktestRequest(EvaluationRunRequest):
     )
     buy_threshold: Optional[float] = Field(default=None, ge=-1, le=1)
     sell_threshold: Optional[float] = Field(default=None, ge=-1, le=1)
+    run_sensitivity: bool = True
+    cost_scenarios_bps: Optional[List[float]] = Field(
+        default=None, max_length=20
+    )
+    slippage_scenarios_bps: Optional[List[float]] = Field(
+        default=None, max_length=20
+    )
+    threshold_scenarios: Optional[List[List[float]]] = Field(
+        default=None, max_length=20
+    )
 
 
 class CandidateTrainRequest(BaseModel):
@@ -38,6 +48,11 @@ class CandidateTrainRequest(BaseModel):
 class ApprovalRequest(BaseModel):
     approved: bool = False
     approved_by: Optional[str] = Field(default=None, max_length=256)
+    evaluation_report_id: Optional[str] = Field(default=None, max_length=256)
+
+
+class EvidenceRequest(BaseModel):
+    report_id: Optional[str] = Field(default=None, max_length=256)
 
 
 class ActivationRequest(ApprovalRequest):

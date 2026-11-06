@@ -1,6 +1,13 @@
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
+
+# Configure an internal service token before app.config is imported. Tests use
+# the same header the Express gateway sends in production.
+os.environ.setdefault("SERVICE_AUTH_TOKEN", "test-internal-service-token-0123456789")
+os.environ.setdefault("ENVIRONMENT", "test")
 
 
 @pytest.fixture
