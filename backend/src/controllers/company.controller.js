@@ -105,6 +105,16 @@ exports.seedCompanies = async (req, res) => {
       { symbol: "HINDZINC.NS", name: "Hindustan Zinc", category: "Metal", subCategory: "Zinc" },
       { symbol: "SAIL.NS", name: "Steel Authority of India", category: "Metal", subCategory: "Steel" },
       { symbol: "JINDALSTEL.NS", name: "Jindal Steel & Power", category: "Metal", subCategory: "Steel" },
+      { symbol: "APLAPOLLO.NS", name: "APL Apollo Tubes", category: "Metal", subCategory: "Steel" },
+      { symbol: "HINDCOPPER.NS", name: "Hindustan Copper", category: "Metal", subCategory: "Copper" },
+      { symbol: "JSL.NS", name: "Jindal Stainless", category: "Metal", subCategory: "Steel" },
+      { symbol: "JINDALSAW.NS", name: "Jindal Saw", category: "Metal", subCategory: "Steel" },
+      { symbol: "RATNAMANI.NS", name: "Ratnamani Metals & Tubes", category: "Metal", subCategory: "Steel" },
+      { symbol: "SHYAMMETL.NS", name: "Shyam Metalics and Energy", category: "Metal", subCategory: "Steel" },
+      { symbol: "WELCORP.NS", name: "Welspun Corp", category: "Metal", subCategory: "Steel" },
+      { symbol: "GPIL.NS", name: "Godawari Power & Ispat", category: "Metal", subCategory: "Steel" },
+      { symbol: "MOIL.NS", name: "MOIL Limited", category: "Mining", subCategory: "Manganese" },
+      { symbol: "GMDCLTD.NS", name: "Gujarat Mineral Development Corporation", category: "Mining", subCategory: "Coal" },
     ];
 
     let created = 0;

@@ -78,5 +78,28 @@ class StockInfoResponse(BaseModel):
     marketCap: float
 
 
+class MarketRegimeMetrics(BaseModel):
+    latest_close: Optional[float] = None
+    sma_50: Optional[float] = None
+    sma_200: Optional[float] = None
+    ma_gap_pct: Optional[float] = None
+    return_20d_pct: Optional[float] = None
+    return_60d_pct: Optional[float] = None
+    distance_from_sma_200_pct: Optional[float] = None
+
+
+class MarketRegimeResponse(BaseModel):
+    symbol: str
+    regime: str
+    label: str
+    reason: str
+    as_of: Optional[str] = None
+    data_points: int
+    metrics: MarketRegimeMetrics
+    method: str
+    source: str
+    disclaimer: str
+
+
 class ErrorResponse(BaseModel):
     detail: str

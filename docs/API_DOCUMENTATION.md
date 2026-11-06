@@ -198,11 +198,15 @@ they require `Authorization: Bearer <jwt>`.
 | GET | `/predictions/evaluation/:symbol` | Yes | Stored evaluation for a symbol |
 | GET | `/predictions/stock-data/:symbol?period=1y` | Yes | Cleaned OHLCV rows |
 | GET | `/predictions/stock-info/:symbol` | Yes | Company/quote metadata |
+| GET | `/predictions/market-regime/:symbol` | Yes | Descriptive bull/bear/neutral regime indicator |
 | GET | `/predictions/history?symbol=...` | Yes | Latest 50 saved predictions |
 | GET | `/predictions/compare/:symbol` | Yes | Model comparison + data-point count |
 | GET | `/predictions/dashboard` | Yes | Dashboard counts and latest predictions |
 
 The legacy prediction path uses `saved_models/` and is unchanged by v2.
+The market-regime response classifies the latest close against 50- and
+200-session simple moving averages with 60-session momentum. It is a
+descriptive label for historical prices, not a forecast or investment advice.
 
 ## 6. Research v2 endpoints
 

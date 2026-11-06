@@ -42,6 +42,11 @@ export const predictionService = {
     return response.data;
   },
 
+  getMarketRegime: async (symbol) => {
+    const response = await api.get(`/predictions/market-regime/${symbol}`);
+    return response.data;
+  },
+
   getHistory: async (symbol) => {
     const params = symbol ? `?symbol=${symbol}` : "";
     const response = await api.get(`/predictions/history${params}`);

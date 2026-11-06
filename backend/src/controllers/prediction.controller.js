@@ -173,6 +173,19 @@ exports.getStockInfo = async (req, res) => {
   }
 };
 
+exports.getMarketRegime = async (req, res) => {
+  try {
+    const { symbol } = req.params;
+    const response = await client.get(
+      `/api/stock-data/${encodeURIComponent(symbol)}/regime`
+    );
+    res.json(response.data);
+  } catch (error) {
+    const message = error.response?.data?.detail || error.message;
+    res.status(500).json({ detail: message });
+  }
+};
+
 exports.getPredictionHistory = async (req, res) => {
   try {
     const { symbol } = req.query;

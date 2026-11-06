@@ -19,6 +19,7 @@ monitoring, versioned APIs, and an analytics UI.
 | Area | Capability |
 |------|------------|
 | Existing prediction app | JWT authentication, company management, five ML models, equal-weight ensemble, BUY/SELL/HOLD signals, dashboard and comparison views |
+| Market regime | Descriptive Bullish/Bearish/Neutral badge from the 50/200-session trend and 60-session momentum |
 | Phase 2 evaluation | Chronological expanding-window walk-forward validation, locked final holdout, naive-persistence baseline, equal-weight ensemble comparison |
 | Phase 2.1 return experiments | Absolute-price, simple-return, and log-return targets with price reconstruction, zero-return baseline, and normalized metrics |
 | Phase 3 backtesting | Buy-and-hold, cash, persistence, model-directional, and threshold strategies with costs, slippage, position sizing, trade histories, equity curves, and risk metrics |
@@ -26,7 +27,7 @@ monitoring, versioned APIs, and an analytics UI.
 | Monitoring | Prediction tracking, actual-outcome updates, completed-prediction metrics, data freshness, feature drift (PSI) |
 | APIs | Existing Express API preserved; additive authenticated `/api/v2` research APIs with validation, pagination, rate limits, structured errors |
 | Analytics UI | Walk-forward, return experiments, backtesting, registry, and monitoring pages under `/research` |
-| Quality | 89 Python tests, 3 Node proxy tests, frontend build, ESLint, Ruff, dependency audits |
+| Quality | 109 Python tests, 7 Node tests, frontend build, ESLint, Ruff, dependency audits |
 
 The legacy training and prediction paths are unchanged by the research features.
 Research reports and registry artifacts are stored separately from
@@ -387,7 +388,7 @@ ruff check .
 .\venv\Scripts\python.exe -m compileall -q app tests scripts
 ```
 
-Current result in this audit: **104 Python tests passed**; Ruff 0.16.7 and
+Current result in this audit: **109 Python tests passed**; Ruff 0.16.7 and
 compileall pass. A small number of httpx/TestClient deprecation warnings remain.
 
 From `backend/`:
