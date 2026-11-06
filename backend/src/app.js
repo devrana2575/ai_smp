@@ -4,22 +4,42 @@ const cors = require("cors");
 const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
 const errorHandler = require("./middleware/error");
+const {
+  assertValidConfig,
+  parseOrigins,
+  requestId,
+} = require("./config/env");
 
 const authRoutes = require("./routes/auth.routes");
 const companyRoutes = require("./routes/company.routes");
 const predictionRoutes = require("./routes/prediction.routes");
 const researchRoutes = require("./routes/research.routes");
 
+if (process.env.NODE_ENV !== "test") {
+  assertValidConfig();
+}
+
 const app = express();
 
 connectDB();
 
-app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000"],
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: parseOrigins(process.env.CORS_ORIGINS),
+    credentials: true,
+  })
+);
 
-app.use(express.json());
+app.use((req, res, next) => {
+  req.id = req.headers["x-request-id"] || requestId();
+  res.setHeader("X-Request-Id", req.id);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
+app.use(express.json({ limit: "1mb" }));
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,

@@ -69,18 +69,30 @@ production model or the legacy prediction history.
     deactivation, and actual-outcome operations; registered-model prediction
     requires authentication but is not admin-only.
 - `src/services/aiClient.js` configures the AI-service base URL, a request
-  timeout (default 180 seconds), and translates AI-service error payloads into
-  the `{ "error": { "code", "message", "details" } }` envelope.
+  timeout (default 180 seconds), forwards the shared
+  `X-Internal-Service-Token` header when `AI_SERVICE_TOKEN` is configured, and
+  translates AI-service error payloads into the
+  `{ "error": { "code", "message", "details" } }` envelope.
+- `src/config/env.js` validates backend configuration before startup. It
+  rejects missing or placeholder secrets, weak production secrets, missing
+  MongoDB configuration, malformed CORS entries, wildcard CORS in production,
+  and invalid timeouts without echoing secret values.
+- `src/app.js` applies environment-driven CORS, request IDs, basic security
+  headers, and a 1 MB JSON body limit. The error handler logs structured
+  context and returns a generic message for 5xx responses.
 - `src/controllers/research.controller.js` validates symbols and pagination,
   proxies v2 calls, and, for registered-model predictions, persists a sanitized
   legacy `Prediction` document after a successful prediction.
-- The AI service itself is not an authentication boundary for these routes; it
-  must remain internal.
+- The AI service requires the shared service token for every API route. The
+  Express gateway is the only intended caller; browser traffic never reaches
+  the AI service directly.
 
 ### 2.3 FastAPI AI service
 
 `app/main.py` includes the legacy routers and the additive
-`research_routes.router` under `/api/v2`.
+`research_routes.router` under `/api/v2`. Every API router is mounted with the
+`require_service_token` dependency from `app/security.py`; only `/health`
+remains public. Interactive docs are disabled unless `ENABLE_DOCS=true`.
 
 Legacy services:
 
@@ -103,12 +115,15 @@ Research services:
 - `risk_metrics_service.py`: equity, drawdown, trade, monthly-return, and
   strategy-comparison metrics.
 - `backtesting_service.py`: next-open execution simulation, five strategies,
-  costs/slippage, position sizing, trades, equity curves.
-- `model_registry_service.py`: versioned candidates, approval, activation,
-  rollback, artifact validation, audit log, active-model prediction.
+  costs/slippage, configurable cost/slippage/threshold sensitivity, causal date
+  validation, reproducibility metadata.
+- `model_registry_service.py`: versioned candidates, evidence-backed approval,
+  explicit activation, rollback, artifact validation, audit log,
+  active-model prediction.
 - `model_monitoring_service.py`: JSONL prediction tracking, actuals, metrics,
   pagination, freshness, PSI drift.
 - `job_service.py`: in-process thread pool with JSON job-state files.
+- `security.py`: service-to-service token dependency and fail-closed behavior.
 
 ## 3. Request flows
 
@@ -116,17 +131,19 @@ Research services:
 
 ```text
 Browser -> Express /api/predictions/* -> AI service /api/*
+        -> X-Internal-Service-Token
         -> yfinance -> clean -> features -> saved models -> ensemble
         -> Express stores Prediction in MongoDB -> Browser
 ```
 
-Legacy behavior is unchanged by the v2 research layer.
+Legacy behavior is unchanged by the v2 research layer. The legacy prediction
+controller uses the shared `aiClient`, so it forwards the internal token too.
 
 ### 3.2 Research experiment flow
 
 ```text
 Browser -> Express /api/v2/... (JWT + admin + rate limit)
-        -> AI service /api/v2/... 
+        -> AI service /api/v2/... (X-Internal-Service-Token)
         -> job_service.submit(...) -> HTTP 202 { job }
         -> AI service runs evaluation/backtest in a worker thread
         -> report JSON/CSV on disk
@@ -206,17 +223,23 @@ See [EVALUATION_METHODOLOGY.md](EVALUATION_METHODOLOGY.md) and
 | Boundary | Control |
 |----------|---------|
 | Browser -> Express | JWT bearer token; protected frontend routes; CORS allowlist |
-| Express -> AI service | Internal service URL; timeout; structured error translation |
-| Lifecycle/experiment state changes | `adminOnly` middleware |
-| Registered-model prediction | JWT authentication; expensive rate limiter |
+| Express -> AI service | Shared `X-Internal-Service-Token`; internal service URL; timeout; structured error translation |
+| AI service direct access | All API routers require the service token; missing configuration fails closed with 503; `/health` only public |
+| Lifecycle/experiment state changes | Express `adminOnly` plus FastAPI service-token dependency |
+| Candidate approval | Completed walk-forward report attached, hashed, schema-matched; no automatic approval |
+| Candidate activation/rollback | Requires prior explicit approval and attached evidence; validates artifact manifest |
+| Registered-model prediction | JWT authentication; expensive rate limiter; service token |
 | Expensive v2 routes | Dedicated rate limiter (8 / 15 min) plus global limiter |
 | Input validation | Symbol regex, job ID regex, Pydantic ranges, page/page_size checks |
-| File paths | Registry and monitoring roots checked with `realpath`; artifact names restricted to version directories |
-| Artifacts | Feature-schema compatibility check, required model/scaler files, no overwrite |
-| Secrets | `.env` files are gitignored; JWT secret generated locally |
+| File paths | Registry and monitoring roots checked with `realpath`; artifact names restricted to plain file names; report IDs restricted to the report directory; registry cannot live inside `saved_models` |
+| Artifacts | Exact feature schema, target formulation, model list, SVR scaler, plain `.pkl` names, full manifest |
+| Configuration | Production startup validation; no wildcard CORS; DEBUG false by default; docs opt-in |
+| Secrets | `.env` files are gitignored; secrets are never returned in API errors; JWT/service tokens generated locally |
 
-The AI service has no end-user authentication of its own. Deploy it on a private
-network or behind the Express gateway; do not expose port 8000 publicly.
+The AI service has service-to-service authentication but no end-user
+authentication of its own. Keep it on a private network or loopback interface
+and do not expose port 8000 publicly. See [SECURITY.md](SECURITY.md) for the
+threat model and operational guidance.
 
 ## 7. Concurrency and operational behavior
 

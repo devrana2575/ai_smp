@@ -49,13 +49,24 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-Create `ai-service/.env` from `.env.example`:
+Create `ai-service/.env` from `.env.example` and generate a service token:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
 ```dotenv
-HOST=0.0.0.0
+ENVIRONMENT=development
+HOST=127.0.0.1
 PORT=8000
-DEBUG=True
+DEBUG=false
+ENABLE_DOCS=false
+SERVICE_AUTH_TOKEN=<generated-service-token>
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080
 ```
+
+The API fails closed if `SERVICE_AUTH_TOKEN` is missing. Use the same value as
+`AI_SERVICE_TOKEN` in `backend/.env`.
 
 Run:
 
@@ -75,7 +86,9 @@ Expected:
 {"status":"healthy","app":"AI Stock Prediction Service","version":"1.0.0"}
 ```
 
-Interactive docs: <http://localhost:8000/docs>.
+Interactive docs are disabled by default. Set `ENABLE_DOCS=true` for local
+development only; production deployments should leave it false. Direct API
+calls then require the service-token header, which browsers must never receive.
 
 ### If PowerShell blocks activation
 
@@ -135,7 +148,9 @@ MONGODB_URI=mongodb://localhost:27017/ai-smp
 JWT_SECRET=<generated-secret>
 JWT_EXPIRE=7d
 AI_SERVICE_URL=http://localhost:8000
+AI_SERVICE_TOKEN=<same value as ai-service SERVICE_AUTH_TOKEN>
 AI_SERVICE_TIMEOUT_MS=180000
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 NODE_ENV=development
 ```
 
@@ -238,13 +253,14 @@ These are research artifacts. They are separate from the legacy
 ```powershell
 cd ai-service
 .\venv\Scripts\python.exe -m pytest -q
-ruff check app tests scripts
+ruff check .
 .\venv\Scripts\python.exe -m compileall -q app tests scripts
 ```
 
-Current baseline: `89 passed`; Ruff and compileall pass. If your environment has
-no `ruff`, install the dev requirements or use the pinned `ruff` from
-`requirements-dev.txt`.
+Current baseline in this audit: `104 passed`; Ruff `0.16.7` and compileall pass.
+The tests set a test-only service token in `tests/conftest.py`. If your
+environment has no `ruff`, use the pinned `ruff` from `requirements-dev.txt` or
+a globally installed matching version.
 
 ### Backend
 
@@ -253,11 +269,12 @@ cd backend
 npm test
 npm run lint
 node --check src/app.js
+node --check src/config/env.js
 node --check src/routes/research.routes.js
 node --check src/controllers/research.controller.js
 ```
 
-Current baseline: `3 passed`; ESLint passes with no warnings.
+Current baseline in this audit: `7 passed`; ESLint passes.
 
 ### Frontend
 
@@ -270,11 +287,43 @@ npm run build
 Current baseline: ESLint passes; Vite build succeeds. A chunk-size warning is
 expected for the single-page bundle and is not a build failure.
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs three independent jobs on push and pull requests:
+
+- **AI service:** Python 3.11, `pip install -r requirements-dev.txt`,
+  `ruff check .`, `pytest -q`.
+- **Backend:** Node 20, `npm ci`, `npm run lint`, `npm test`.
+- **Frontend:** Node 20, `npm ci`, `npm run lint`, `npm run build`.
+
+Do not mark the workflow successful unless these commands actually pass. Run
+the same commands locally before pushing.
+
 ## 9. Environment variables
 
-### AI service research defaults
+### AI service
 
-All are optional and can be set in `ai-service/.env`:
+`SERVICE_AUTH_TOKEN` is required for the API to serve requests. Generate a
+development value and use the same value as `AI_SERVICE_TOKEN` in the backend:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+```dotenv
+ENVIRONMENT=development
+HOST=127.0.0.1
+PORT=8000
+DEBUG=false
+ENABLE_DOCS=false
+SERVICE_AUTH_TOKEN=<generated-service-token>
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080
+```
+
+Production validation additionally requires `DEBUG=false`, no wildcard CORS
+origins, absolute http(s) origins, and a service token of at least 32 characters.
+
+Research defaults are optional and can be set in `ai-service/.env`:
 
 ```dotenv
 EVALUATION_PERIOD=2y
@@ -318,9 +367,16 @@ MONGODB_URI=mongodb://localhost:27017/ai-smp
 JWT_SECRET=<generated-secret>
 JWT_EXPIRE=7d
 AI_SERVICE_URL=http://localhost:8000
+AI_SERVICE_TOKEN=<same value as SERVICE_AUTH_TOKEN>
 AI_SERVICE_TIMEOUT_MS=180000
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 NODE_ENV=development
 ```
+
+Production startup validates `JWT_SECRET`, `MONGODB_URI`, `AI_SERVICE_TOKEN`,
+`CORS_ORIGINS`, and `AI_SERVICE_TIMEOUT_MS`. Placeholder or weak production
+secrets, wildcard origins, and malformed origins are rejected without echoing
+the secret values.
 
 ### Frontend
 

@@ -96,6 +96,8 @@ Training details:
 The candidate entry stores:
 
 - feature columns and feature-schema version;
+- data source, synthetic-data flag, raw/clean row counts, and a SHA-256
+  fingerprint of the exact cleaned OHLCV rows used for training;
 - training start/end and sample counts;
 - validation metrics for every model, the ensemble, and the baseline;
 - `candidate_vs_active` comparison when a prior active version exists;
@@ -103,7 +105,37 @@ The candidate entry stores:
 - hyperparameters and SVR preprocessing diagnostics;
 - `production_artifact_unchanged: true`.
 
+The data fingerprint and source label make the candidate's training evidence
+distinguishable from a walk-forward report and from real-market evaluation.
+
 ## 5. Approval and activation
+
+Approval and activation are separate, explicit actions. Training never approves
+or activates a candidate.
+
+### Attach evaluation evidence
+
+```http
+POST /api/v2/models/TATASTEEL.NS/evidence/v0
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{ "report_id": "TATASTEEL_NS_walk_forward.json" }
+```
+
+The report must be a completed walk-forward report for the same symbol. The
+registry validates its status, selected model, development metrics, baseline
+comparison, generation time, data fingerprint, random seed, and exact feature
+schema. It stores:
+
+- report ID, SHA-256 hash, and generation/attachment timestamps;
+- dataset period, data source, and dataset fingerprint;
+- random seed and full evaluation configuration;
+- feature schema and selected model;
+- development metrics, final holdout metrics, and baseline comparison.
+
+Reproducibility metadata is therefore part of the approval record, not only the
+report file. Attaching new evidence resets any existing approval.
 
 ### Approve
 
@@ -112,12 +144,16 @@ POST /api/v2/models/TATASTEEL.NS/approve/v0
 Authorization: Bearer <admin-jwt>
 Content-Type: application/json
 
-{ "approved": true }
+{
+  "approved": true,
+  "evaluation_report_id": "TATASTEEL_NS_walk_forward.json"
+}
 ```
 
-Sets `approved`, `approved_at`, and `approved_by`. The Express proxy fills
-`approved_by` from the authenticated user; do not rely on a client-supplied
-identity.
+Approval first attaches and validates the completed walk-forward report, then
+sets `approved`, `approved_at`, and `approved_by`. A candidate without completed
+evaluation evidence cannot be approved. The Express proxy fills `approved_by`
+from the authenticated user; do not rely on a client-supplied identity.
 
 ### Activate
 
@@ -132,13 +168,15 @@ Content-Type: application/json
 Activation:
 
 1. loads the version entry;
-2. validates the artifact directory and compatibility metadata;
-3. marks other active versions inactive;
-4. marks this version `active`;
-5. records `activated_at`, `activated_by`, and activation history;
-6. writes a `version_activated` audit event.
+2. requires that the version is already approved with attached evidence;
+3. re-validates the evidence and artifact manifest;
+4. marks other active versions inactive;
+5. marks this version `active`;
+6. records `activated_at`, `activated_by`, and activation history;
+7. writes a `version_activated` audit event.
 
-If validation fails, no active version changes.
+If validation fails, no active version changes. A request to activate an
+unapproved candidate fails rather than auto-approving it.
 
 ### Rollback
 
@@ -182,16 +220,21 @@ Each version stores:
 
 Validation checks:
 
+- the registry directory is not inside (and does not equal) `saved_models`;
 - the artifact directory resolves under the registry root;
-- every required model artifact exists;
-- the SVR scaler artifact exists;
+- the manifest contains exactly the five model artifacts and one SVR scaler;
+- every artifact name is a plain `.pkl` filename, not a path;
+- every required artifact exists;
 - the stored feature list exactly matches the current feature engineering
-  order;
+  order and the version entry's feature list;
 - the artifact schema version is supported;
+- the target formulation is `absolute_price`;
+- the compatibility model list matches the current model list;
+- `has_svr_scaler` is true;
 - each artifact path resolves inside its version directory.
 
-This prevents loading an old model against a changed feature set, which would
-silently produce invalid predictions.
+This prevents loading an old model against a changed feature set, a missing
+model, a path-traversal attempt, or an artifact set that was partially copied.
 
 ## 7. Registered-model prediction
 
@@ -224,6 +267,7 @@ Express translates it to HTTP 409. There is no silent fallback to
 `audit.jsonl` is append-only. Events include:
 
 - `candidate_created`
+- `evaluation_evidence_attached`
 - `candidate_approved` / `candidate_unapproved`
 - `version_activated`
 - `version_deactivated`
@@ -250,11 +294,16 @@ compute error, directional correctness, and completed-prediction metrics. See
 
 Before activating a candidate:
 
-- [ ] Review its validation metrics and `candidate_vs_active` comparison.
+- [ ] Run a completed walk-forward evaluation for the symbol.
+- [ ] Confirm the report symbol, period, feature schema, selected model,
+  metrics, baseline comparison, seed, and generation time.
+- [ ] Review its development and holdout metrics and `candidate_vs_active`
+  comparison.
 - [ ] Confirm the validation split is chronological and the baseline is present.
 - [ ] Confirm the feature schema matches the running service.
-- [ ] Confirm the artifact directory is present and readable.
+- [ ] Attach the report as evaluation evidence.
 - [ ] Approve with the correct admin account.
+- [ ] Confirm the artifact directory is present and readable.
 - [ ] Activate only after a successful approval.
 - [ ] Make one v2 prediction and confirm the returned version and timestamp.
 - [ ] Monitor completed predictions and drift; roll back on a documented
@@ -262,17 +311,22 @@ Before activating a candidate:
 
 For rollback:
 
-- [ ] Confirm the target version is the intended previous version.
+- [ ] Confirm the target version is the intended previous version and was
+  previously approved with evidence.
 - [ ] Confirm its artifacts still validate against the current feature schema.
 - [ ] Record the incident/reason operationally.
 - [ ] Run a post-rollback prediction and monitoring check.
 
 ## 11. Security and limitations
 
-- The FastAPI registry endpoints are internal. Express enforces JWT and
-  `adminOnly` for lifecycle operations.
+- Every FastAPI API route requires the `X-Internal-Service-Token` service
+  secret. Express enforces JWT authentication and `adminOnly` for lifecycle
+  operations, then forwards the service token server-side.
+- The registry cannot be placed inside `saved_models/`.
+- Approval requires a completed, schema-matched walk-forward report; activation
+  requires prior approval and attached evidence.
 - Version numbers and symbols are validated; artifact paths are constrained with
-  `realpath` checks.
+  `realpath` checks and plain `.pkl` filename validation.
 - The registry is file-backed and uses a process-local lock. It is suitable for
   a single research service process, not for concurrent writers across multiple
   hosts.
@@ -281,8 +335,12 @@ For rollback:
   partial entry and artifact directory on the next exception path; a crash that
   kills the process mid-write can leave orphaned files that an operator must
   inspect.
+- Evidence hashes detect report changes made after attachment, but a writer
+  with filesystem access can still alter the registry. Protect the registry and
+  report directories with host-level access control.
 - Activation does not prove that a model is profitable or statistically better.
-  It only proves that the version is approved and artifact-compatible.
+  It only proves that the version is approved, evidence-attached, and
+  artifact-compatible.
 - No live registry artifacts are created by the test suite; tests use temporary
-  directories. The `model_registry/` directory in this working tree is empty
-  until a candidate is explicitly trained.
+  directories. The Model registry directory in this working tree is empty until
+  a candidate is explicitly trained.

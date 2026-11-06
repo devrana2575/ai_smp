@@ -8,7 +8,10 @@ from app.routes import research_routes
 from app.services.model_registry_service import ModelRegistryError
 
 
-client = TestClient(app)
+SERVICE_TOKEN = "test-internal-service-token-0123456789"
+client = TestClient(
+    app, headers={"X-Internal-Service-Token": SERVICE_TOKEN}
+)
 
 
 def _wait_for_job(job_id, timeout=5.0):

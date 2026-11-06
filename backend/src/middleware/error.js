@@ -1,12 +1,28 @@
 const errorHandler = (err, req, res, _next) => {
-  console.error(err.stack);
-
   const statusCode = err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
+  const production = process.env.NODE_ENV === "production";
+  const requestId = req.id || "unknown";
+
+  // Log structured context without request bodies, headers, or secrets.
+  console.error(
+    JSON.stringify({
+      level: "error",
+      requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode,
+      message: err.message,
+      ...(production ? {} : { stack: err.stack }),
+    })
+  );
+
+  const clientMessage =
+    statusCode >= 500 ? "Internal server error" : err.message;
 
   res.status(statusCode).json({
-    detail: message,
-    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+    detail: clientMessage,
+    requestId,
+    ...(!production && { stack: err.stack }),
   });
 };
 

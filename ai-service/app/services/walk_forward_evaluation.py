@@ -1325,16 +1325,46 @@ class WalkForwardEvaluationService:
         ]
         limitations.extend(warnings)
 
+        generated_at = self.now_provider().astimezone(timezone.utc).isoformat()
+        data_source = getattr(self.data_service, "source_label", "yfinance")
+        is_synthetic = bool(
+            getattr(self.data_service, "is_synthetic", False)
+        )
+        config_payload = json.dumps(
+            active_config.to_dict(), sort_keys=True, separators=(",", ":")
+        )
+        reproducibility = {
+            "schema_version": "1.0",
+            "report_id": (
+                normalized_symbol.replace(".", "_") + "_walk_forward.json"
+            ),
+            "generated_at": generated_at,
+            "symbol": normalized_symbol,
+            "random_seed": active_config.random_state,
+            "evaluation_config": active_config.to_dict(),
+            "evaluation_config_sha256": hashlib.sha256(
+                config_payload.encode("utf-8")
+            ).hexdigest(),
+            "dataset_period": active_config.period,
+            "data_source": data_source,
+            "is_synthetic": is_synthetic,
+            "data_fingerprint_sha256": dataset.data_fingerprint,
+            "feature_schema": list(dataset.feature_columns),
+            "holdout_split": holdout_info,
+        }
+
         report: Dict[str, Any] = {
             "schema_version": "1.0",
             "symbol": normalized_symbol,
-            "generated_at": self.now_provider().astimezone(timezone.utc).isoformat(),
+            "generated_at": generated_at,
             "status": "completed",
             "config": active_config.to_dict(),
+            "reproducibility": reproducibility,
             "methodology": methodology,
             "metric_definitions": metric_definitions,
             "data": {
-                "source": "yfinance",
+                "source": data_source,
+                "is_synthetic": is_synthetic,
                 "period": active_config.period,
                 "raw_rows": int(len(raw_data)),
                 "clean_rows": int(len(clean_data)),

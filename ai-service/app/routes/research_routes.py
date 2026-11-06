@@ -21,12 +21,14 @@ from app.schemas.research_schema import (
     BacktestRequest,
     CandidateTrainRequest,
     EvaluationRunRequest,
+    EvidenceRequest,
     PredictionRequest,
     ReturnExperimentRequest,
     UpdateActualsRequest,
 )
 from app.services.backtesting_service import (
     BacktestConfig,
+    SensitivityConfig,
     backtesting_service,
 )
 from app.services.data_service import validate_symbol
@@ -99,6 +101,30 @@ def _evaluation_config(payload: EvaluationRunRequest) -> EvaluationConfig:
     )
 
 
+def _sensitivity_config(request: BacktestRequest) -> SensitivityConfig:
+    defaults = SensitivityConfig()
+    thresholds = defaults.threshold_scenarios
+    if request.threshold_scenarios is not None:
+        thresholds = tuple(
+            tuple(float(value) for value in pair)
+            for pair in request.threshold_scenarios
+        )
+    return SensitivityConfig(
+        enabled=request.run_sensitivity,
+        cost_scenarios_bps=(
+            tuple(float(value) for value in request.cost_scenarios_bps)
+            if request.cost_scenarios_bps is not None
+            else defaults.cost_scenarios_bps
+        ),
+        slippage_scenarios_bps=(
+            tuple(float(value) for value in request.slippage_scenarios_bps)
+            if request.slippage_scenarios_bps is not None
+            else defaults.slippage_scenarios_bps
+        ),
+        threshold_scenarios=thresholds,
+    )
+
+
 def _report_path(directory: str, symbol: str, suffix: str) -> str:
     normalized = validate_symbol(symbol)
     return os.path.join(
@@ -117,12 +143,10 @@ def _read_json(path: str, code: str) -> Dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError):
+        # Never return filesystem paths or parser details to clients.
         raise _error(
-            500,
-            "report_read_failed",
-            "Could not read the stored report",
-            {"error": str(exc)},
+            500, "report_read_failed", "Could not read the stored report"
         )
     if not isinstance(payload, dict):
         raise _error(500, "invalid_report", "Stored report is not an object")
@@ -187,11 +211,14 @@ def _run_backtest(symbol: str, request: BacktestRequest) -> Dict[str, Any]:
         liquidate_at_end=base.liquidate_at_end,
     )
     config.validate()
+    sensitivity = _sensitivity_config(request)
+    sensitivity.validate()
     return backtesting_service.run_symbol(
         symbol,
         config=config,
         evaluation_report=evaluation_report,
         write_report=True,
+        sensitivity=sensitivity,
     )
 
 
@@ -287,6 +314,7 @@ def run_backtest(symbol: str, request: BacktestRequest):
             and request.buy_threshold < request.sell_threshold
         ):
             raise ValueError("buy_threshold must be >= sell_threshold")
+        _sensitivity_config(request).validate()
     except Exception as exc:  # noqa: BLE001
         raise _error(400, "invalid_request", str(exc))
     job = job_service.submit(
@@ -393,12 +421,39 @@ def train_candidate(symbol: str, request: CandidateTrainRequest):
     return {"job": job}
 
 
+@router.post("/models/{symbol}/evidence/{version}")
+def attach_candidate_evidence(
+    symbol: str, version: str, request: EvidenceRequest
+):
+    try:
+        normalized = validate_symbol(symbol)
+        return model_registry_service.attach_evaluation_evidence(
+            normalized,
+            version,
+            report_id=request.report_id,
+            actor="api",
+        )
+    except ModelRegistryError as exc:
+        raise _error(400, "registry_error", str(exc))
+    except Exception as exc:  # noqa: BLE001
+        raise _error(400, "invalid_model_request", str(exc))
+
+
 @router.post("/models/{symbol}/approve/{version}")
 def approve_candidate(
     symbol: str, version: str, request: ApprovalRequest
 ):
     try:
         normalized = validate_symbol(symbol)
+        if request.approved:
+            # Approval is evidence-based. Load and hash the completed
+            # walk-forward report before recording the approval.
+            model_registry_service.attach_evaluation_evidence(
+                normalized,
+                version,
+                report_id=request.evaluation_report_id,
+                actor=request.approved_by or "admin",
+            )
         return model_registry_service.approve_version(
             normalized,
             version,

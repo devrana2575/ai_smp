@@ -460,6 +460,26 @@ class TestWalkForwardEvaluation:
         ]
         assert first["generated_at"] == fixed_time.isoformat()
 
+    def test_reproducibility_metadata_and_synthetic_source(
+        self, stock_data_factory
+    ):
+        df = stock_data_factory(400)
+        service = make_service(df)
+        service.data_service.source_label = "synthetic_test_data"
+        service.data_service.is_synthetic = True
+        report = service.evaluate_symbol("TEST.NS", write_report=False)
+
+        reproducibility = report["reproducibility"]
+        assert reproducibility["symbol"] == "TEST.NS"
+        assert reproducibility["random_seed"] == 42
+        assert reproducibility["dataset_period"] == "2y"
+        assert reproducibility["data_source"] == "synthetic_test_data"
+        assert reproducibility["is_synthetic"] is True
+        assert len(reproducibility["evaluation_config_sha256"]) == 64
+        assert reproducibility["feature_schema"] == EXPECTED_FEATURE_COLUMNS
+        assert report["data"]["is_synthetic"] is True
+        assert report["data"]["source"] == "synthetic_test_data"
+
     def test_ensemble_is_equal_weight_and_production_behavior_is_unchanged(
         self, stock_data_factory
     ):

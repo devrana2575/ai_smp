@@ -9,6 +9,7 @@ from app.services.backtesting_service import (
     STRATEGY_PERSISTENCE,
     BacktestConfig,
     BacktestingService,
+    SensitivityConfig,
 )
 
 
@@ -124,6 +125,9 @@ def test_run_symbol_writes_reports(fake_report, tmp_path):
     assert set(report["strategies"]) == set(STRATEGY_NAMES)
     assert len(report["strategy_comparison"]) == len(STRATEGY_NAMES)
     assert report["report_paths"]["json"].endswith("_backtest.json")
+    assert report["sensitivity"]["enabled"] is True
+    assert report["reproducibility"]["evaluation_report_sha256"]
+    assert report["reproducibility"]["random_seed"] is None
 
     with open(report["report_paths"]["json"], encoding="utf-8") as handle:
         saved = json.load(handle)
@@ -154,3 +158,62 @@ def test_extract_rejects_duplicate_target_dates(fake_report):
     )
     with pytest.raises(ValueError, match="duplicates"):
         service.extract_rows(duplicate, "linear_regression")
+
+
+def test_extract_rejects_non_causal_execution_dates(fake_report):
+    service = BacktestingService()
+    non_causal = json.loads(json.dumps(fake_report))
+    validation = non_causal["development_validation"]["folds"][0][
+        "validation"
+    ]
+    validation["target_dates"][0] = validation["dates"][0]
+    with pytest.raises(ValueError, match="strictly after the signal date"):
+        service.extract_rows(non_causal, "linear_regression")
+
+
+def test_sensitivity_scenarios_and_thresholds(fake_report):
+    service = BacktestingService()
+    rows = service.extract_rows(fake_report, "linear_regression")
+    config = BacktestConfig(
+        starting_capital=100000.0,
+        transaction_cost_bps=0.0,
+        slippage_bps=0.0,
+        buy_threshold=0.0,
+        sell_threshold=0.0,
+    )
+    sensitivity = SensitivityConfig(
+        cost_scenarios_bps=(0.0, 10.0, 50.0),
+        slippage_scenarios_bps=(0.0, 10.0),
+        threshold_scenarios=((0.0, 0.0), (0.01, -0.01)),
+    )
+    result = service.run_sensitivity(rows, config, sensitivity)
+
+    assert result["enabled"] is True
+    assert len(result["scenarios"]) == 6
+    for scenario in result["scenarios"]:
+        assert set(scenario["strategies"]) == {
+            "model_directional",
+            "threshold",
+            "buy_and_hold",
+        }
+    assert len(result["threshold_sensitivity"]) == 2
+    high_cost = [
+        scenario
+        for scenario in result["scenarios"]
+        if scenario["transaction_cost_bps"] == 50.0
+        and scenario["slippage_bps"] == 0.0
+    ][0]
+    zero_cost = [
+        scenario
+        for scenario in result["scenarios"]
+        if scenario["transaction_cost_bps"] == 0.0
+        and scenario["slippage_bps"] == 0.0
+    ][0]
+    assert high_cost["strategies"]["buy_and_hold"]["total_costs"] > (
+        zero_cost["strategies"]["buy_and_hold"]["total_costs"]
+    )
+
+
+def test_sensitivity_config_rejects_inverted_thresholds():
+    with pytest.raises(ValueError, match="sell <= buy"):
+        SensitivityConfig(threshold_scenarios=((-0.1, 0.1),)).validate()

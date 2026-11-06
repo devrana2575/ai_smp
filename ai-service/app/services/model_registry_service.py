@@ -7,6 +7,7 @@ A newly trained version is a candidate until an explicit, audited activation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -49,6 +50,7 @@ MODEL_LABELS = {
 ENSEMBLE_NAME = "ensemble_equal_weight"
 SCHEMA_VERSION = "1.0"
 ARTIFACT_SCHEMA_VERSION = "1.0"
+EVIDENCE_SCHEMA_VERSION = "1.0"
 TARGET_FORMULATION = "absolute_price"
 
 
@@ -92,6 +94,24 @@ def _safe_json(value: Any) -> Any:
     return json.loads(json.dumps(value, default=_json_default))
 
 
+def _training_fingerprint(frame: Any) -> str:
+    """Hash the exact OHLCV rows used for candidate training."""
+
+    columns = ["Date", "Open", "High", "Low", "Close", "Volume"]
+    working = frame[columns].copy()
+    working["Date"] = working["Date"].astype(str)
+    payload = working.to_csv(index=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class ModelRegistryService:
     _lock = threading.RLock()
 
@@ -115,6 +135,17 @@ class ModelRegistryService:
         if missing:
             raise ValueError("Missing model factories for: " + ", ".join(missing))
         self.now_provider = now_provider or _utc_now
+
+        # Registry artifacts must never live inside (or replace) the legacy
+        # production saved_models directory.
+        saved_models_root = os.path.realpath(settings.SAVED_MODELS_DIR)
+        registry_root = os.path.realpath(self.registry_dir)
+        if registry_root == saved_models_root or registry_root.startswith(
+            saved_models_root + os.sep
+        ):
+            raise ValueError(
+                "MODEL_REGISTRY_DIR must not be inside saved_models"
+            )
         os.makedirs(self.registry_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -449,6 +480,17 @@ class ModelRegistryService:
                     "feature_schema_version": ARTIFACT_SCHEMA_VERSION,
                     "feature_columns": feature_columns,
                     "period": period,
+                    "data": {
+                        "source": getattr(
+                            self.data_service, "source_label", "yfinance"
+                        ),
+                        "is_synthetic": bool(
+                            getattr(self.data_service, "is_synthetic", False)
+                        ),
+                        "fingerprint_sha256": _training_fingerprint(clean),
+                        "raw_rows": int(len(raw)),
+                        "clean_rows": int(len(clean)),
+                    },
                     "training": {
                         "start": str(train["Date"].iloc[0]),
                         "end": str(train["Date"].iloc[-1]),
@@ -501,6 +543,255 @@ class ModelRegistryService:
             raise
 
     # ------------------------------------------------------------------
+    # Evaluation evidence
+    # ------------------------------------------------------------------
+    def _evaluation_report_path(
+        self, symbol: str, report_id: Optional[str] = None
+    ) -> str:
+        directory = os.path.realpath(settings.EVALUATION_REPORT_DIR)
+        if report_id:
+            if (
+                os.path.basename(report_id) != report_id
+                or not report_id.endswith(".json")
+            ):
+                raise ModelRegistryError(
+                    "report_id must be a plain JSON file name"
+                )
+            path = os.path.realpath(os.path.join(directory, report_id))
+        else:
+            path = os.path.realpath(
+                os.path.join(
+                    directory,
+                    symbol.replace(".", "_") + "_walk_forward.json",
+                )
+            )
+        if path != directory and not path.startswith(directory + os.sep):
+            raise ModelRegistryError(
+                "Evaluation report path escapes the configured report directory"
+            )
+        return path
+
+    @staticmethod
+    def _build_evaluation_evidence(
+        symbol: str,
+        report: Mapping[str, Any],
+        report_id: str,
+        report_sha256: str,
+        attached_at: str,
+    ) -> Dict[str, Any]:
+        if report.get("symbol") != symbol:
+            raise ModelRegistryError(
+                "Evaluation report symbol does not match the candidate symbol"
+            )
+        if report.get("status") != "completed":
+            raise ModelRegistryError(
+                "Evaluation report is not completed; evidence cannot be attached"
+            )
+
+        data = report.get("data") or {}
+        config = report.get("config") or {}
+        best = report.get("best_performing_model") or {}
+        selected_model = best.get("selected_model")
+        if selected_model not in MODEL_NAMES + (ENSEMBLE_NAME,):
+            raise ModelRegistryError(
+                "Evaluation report has no deployable selected model"
+            )
+        development_metrics = best.get("development_metrics")
+        if not isinstance(development_metrics, Mapping) or (
+            development_metrics.get("rmse") is None
+        ):
+            raise ModelRegistryError(
+                "Evaluation report is missing selected-model development metrics"
+            )
+
+        baseline = report.get("baseline_comparison") or {}
+        baseline_development = (baseline.get("development") or {}).get(
+            selected_model
+        )
+        if not isinstance(baseline_development, Mapping):
+            raise ModelRegistryError(
+                "Evaluation report is missing a baseline comparison for the "
+                "selected model"
+            )
+        if "beats_baseline_on_rmse" not in baseline_development:
+            raise ModelRegistryError(
+                "Evaluation baseline comparison is incomplete"
+            )
+
+        feature_columns = data.get("feature_columns")
+        if not isinstance(feature_columns, list) or not feature_columns:
+            raise ModelRegistryError(
+                "Evaluation report is missing its feature schema"
+            )
+        fingerprint = data.get("data_fingerprint_sha256")
+        if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+            raise ModelRegistryError(
+                "Evaluation report is missing a dataset fingerprint"
+            )
+        generated_at = report.get("generated_at")
+        if not generated_at:
+            raise ModelRegistryError(
+                "Evaluation report is missing a generation timestamp"
+            )
+
+        return {
+            "schema_version": EVIDENCE_SCHEMA_VERSION,
+            "report_id": report_id,
+            "report_sha256": report_sha256,
+            "generated_at": generated_at,
+            "attached_at": attached_at,
+            "symbol": symbol,
+            "status": report.get("status"),
+            "dataset_period": data.get("period"),
+            "data_source": data.get("source"),
+            "data_fingerprint_sha256": fingerprint,
+            "feature_columns": list(feature_columns),
+            "random_seed": config.get("random_state"),
+            "evaluation_config": dict(config),
+            "selected_model": selected_model,
+            "selection_metric": best.get("selection_metric"),
+            "development_metrics": dict(development_metrics),
+            "final_holdout_metrics": best.get("final_holdout_metrics"),
+            "baseline_comparison": {
+                "development": dict(baseline_development),
+                "final_holdout": (baseline.get("final_holdout") or {}).get(
+                    selected_model
+                ),
+            },
+        }
+
+    def attach_evaluation_evidence(
+        self,
+        symbol: str,
+        version: str,
+        report_id: Optional[str] = None,
+        actor: str = "admin",
+    ) -> Dict[str, Any]:
+        """Attach a completed walk-forward report as approval evidence."""
+
+        normalized = validate_symbol(symbol)
+        with self._lock:
+            registry = self._load_registry()
+            symbol_state = registry.get("symbols", {}).get(normalized)
+            if not symbol_state:
+                raise ModelRegistryError(f"No registry entry for {normalized}")
+            entry = symbol_state.get("versions", {}).get(version)
+            if not entry:
+                raise ModelRegistryError(
+                    f"Version {version} does not exist for {normalized}"
+                )
+            if entry.get("status") == "active":
+                raise ModelRegistryError(
+                    "Deactivate the active version before replacing its "
+                    "evaluation evidence"
+                )
+
+            path = self._evaluation_report_path(normalized, report_id)
+            if not os.path.exists(path):
+                raise ModelRegistryError(
+                    "Evaluation report not found; run a walk-forward "
+                    "evaluation for this symbol before approval"
+                )
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    report = json.load(handle)
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ModelRegistryError(
+                    "Evaluation report could not be read as JSON"
+                ) from exc
+            if not isinstance(report, Mapping):
+                raise ModelRegistryError(
+                    "Evaluation report is not a JSON object"
+                )
+
+            evidence = self._build_evaluation_evidence(
+                symbol=normalized,
+                report=report,
+                report_id=os.path.basename(path),
+                report_sha256=_sha256_file(path),
+                attached_at=self.now_provider(),
+            )
+            if evidence["feature_columns"] != list(
+                entry.get("feature_columns") or []
+            ):
+                raise ModelRegistryError(
+                    "Evaluation report feature schema does not match the "
+                    "candidate artifact schema"
+                )
+
+            entry["evaluation_evidence"] = evidence
+            entry["evaluation_report_id"] = evidence["report_id"]
+            entry["evaluation_report_sha256"] = evidence["report_sha256"]
+            # New evidence invalidates a previous approval until it is
+            # reviewed again.
+            entry["approved"] = False
+            entry["approved_at"] = None
+            entry["approved_by"] = None
+            self._save_registry(registry)
+            self._audit(
+                "evaluation_evidence_attached",
+                symbol=normalized,
+                version=version,
+                report_id=evidence["report_id"],
+                report_sha256=evidence["report_sha256"],
+                actor=actor,
+            )
+            return _safe_json(entry)
+
+    def _validate_evaluation_evidence(
+        self, symbol: str, entry: Mapping[str, Any]
+    ) -> Dict[str, Any]:
+        evidence = entry.get("evaluation_evidence")
+        if not isinstance(evidence, Mapping):
+            raise ModelRegistryError(
+                "Approval requires attached walk-forward evaluation evidence"
+            )
+        if evidence.get("schema_version") != EVIDENCE_SCHEMA_VERSION:
+            raise ModelRegistryError(
+                "Evaluation evidence schema version is unsupported"
+            )
+        if evidence.get("symbol") != symbol:
+            raise ModelRegistryError(
+                "Evaluation evidence symbol does not match the candidate"
+            )
+        if evidence.get("status") != "completed":
+            raise ModelRegistryError(
+                "Evaluation evidence is not from a completed report"
+            )
+        if not evidence.get("report_id") or not evidence.get(
+            "report_sha256"
+        ):
+            raise ModelRegistryError(
+                "Evaluation evidence is missing its report identifier or hash"
+            )
+        if evidence.get("feature_columns") != list(
+            entry.get("feature_columns") or []
+        ):
+            raise ModelRegistryError(
+                "Evaluation evidence feature schema is incompatible with the "
+                "candidate artifacts"
+            )
+        if evidence.get("selected_model") not in MODEL_NAMES + (ENSEMBLE_NAME,):
+            raise ModelRegistryError(
+                "Evaluation evidence has no deployable selected model"
+            )
+        metrics = evidence.get("development_metrics")
+        if not isinstance(metrics, Mapping) or metrics.get("rmse") is None:
+            raise ModelRegistryError(
+                "Evaluation evidence is missing development metrics"
+            )
+        baseline = (evidence.get("baseline_comparison") or {}).get(
+            "development"
+        )
+        if not isinstance(baseline, Mapping) or (
+            "beats_baseline_on_rmse" not in baseline
+        ):
+            raise ModelRegistryError(
+                "Evaluation evidence is missing its baseline comparison"
+            )
+        return dict(evidence)
+
+    # ------------------------------------------------------------------
     # Approval, activation, rollback
     # ------------------------------------------------------------------
     def approve_version(
@@ -520,6 +811,12 @@ class ModelRegistryService:
             if not entry:
                 raise ModelRegistryError(
                     f"Version {version} does not exist for {normalized}"
+                )
+            if approved:
+                self._validate_evaluation_evidence(normalized, entry)
+            elif entry.get("status") == "active":
+                raise ModelRegistryError(
+                    "Deactivate the active version before removing its approval"
                 )
             entry["approved"] = bool(approved)
             entry["approved_at"] = self.now_provider() if approved else None
@@ -557,14 +854,17 @@ class ModelRegistryService:
                 raise ModelRegistryError(
                     f"Version {version} does not exist for {normalized}"
                 )
+            if not entry.get("approved"):
+                raise ModelRegistryError(
+                    "Version must be explicitly approved with attached "
+                    "evaluation evidence before activation"
+                )
+            self._validate_evaluation_evidence(normalized, entry)
             self._validate_artifacts(entry)
             previous = symbol_state.get("active_version")
             for other_version, other_entry in versions.items():
                 if other_entry.get("status") == "active":
                     other_entry["status"] = "inactive"
-            entry["approved"] = True
-            entry["approved_at"] = entry.get("approved_at") or self.now_provider()
-            entry["approved_by"] = entry.get("approved_by") or approved_by
             entry["status"] = "active"
             entry["activated_at"] = self.now_provider()
             entry["activated_by"] = approved_by
@@ -661,7 +961,11 @@ class ModelRegistryService:
             raise ModelRegistryError(
                 f"Artifact directory does not exist: {artifact_dir}"
             )
-        compatibility = entry.get("artifact_compatibility", {})
+        compatibility = entry.get("artifact_compatibility")
+        if not isinstance(compatibility, Mapping):
+            raise ModelRegistryError(
+                "Artifact compatibility metadata is missing"
+            )
         expected_features = list(
             self.feature_engineering.get_feature_columns()
         )
@@ -670,21 +974,52 @@ class ModelRegistryService:
                 "Artifact feature schema is incompatible with the current "
                 "feature engineering schema"
             )
+        if entry.get("feature_columns") != expected_features:
+            raise ModelRegistryError(
+                "Version feature schema is incompatible with the current "
+                "feature engineering schema"
+            )
         if compatibility.get("schema_version") != ARTIFACT_SCHEMA_VERSION:
             raise ModelRegistryError(
                 "Artifact schema version is unsupported"
             )
-        for name in MODEL_NAMES:
-            artifact = entry.get("artifacts", {}).get(name)
-            if not artifact:
-                raise ModelRegistryError(f"Missing artifact for {name}")
+        if compatibility.get("target_formulation") != TARGET_FORMULATION:
+            raise ModelRegistryError(
+                "Artifact target formulation is unsupported"
+            )
+        if compatibility.get("model_names") != list(MODEL_NAMES):
+            raise ModelRegistryError(
+                "Artifact model list is incomplete or incompatible"
+            )
+        if not compatibility.get("has_svr_scaler"):
+            raise ModelRegistryError(
+                "Artifact compatibility metadata is missing the SVR scaler"
+            )
+
+        artifacts = entry.get("artifacts")
+        if not isinstance(artifacts, Mapping):
+            raise ModelRegistryError("Artifact manifest is missing")
+        expected_artifact_keys = set(MODEL_NAMES) | {"svr_scaler"}
+        if set(artifacts) != expected_artifact_keys:
+            raise ModelRegistryError(
+                "Artifact manifest is incomplete or contains unexpected entries"
+            )
+        for key, artifact in artifacts.items():
+            if not isinstance(artifact, str) or not artifact.endswith(".pkl"):
+                raise ModelRegistryError(
+                    f"Artifact manifest entry is invalid for {key}"
+                )
+            if os.path.basename(artifact) != artifact:
+                raise ModelRegistryError(
+                    f"Artifact path must be a plain file name for {key}"
+                )
             path = os.path.realpath(os.path.join(artifact_dir, artifact))
             if not path.startswith(artifact_dir + os.sep):
-                raise ModelRegistryError("Artifact path escapes its version directory")
+                raise ModelRegistryError(
+                    "Artifact path escapes its version directory"
+                )
             if not os.path.exists(path):
                 raise ModelRegistryError(f"Artifact does not exist: {artifact}")
-        if not entry.get("artifacts", {}).get("svr_scaler"):
-            raise ModelRegistryError("Missing SVR scaler artifact")
 
     def load_version_models(
         self, symbol: str, version: str

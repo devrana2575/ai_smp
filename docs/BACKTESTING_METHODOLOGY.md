@@ -212,8 +212,8 @@ costs. They are omitted from the table for brevity.
 For each symbol, `save_report()` writes:
 
 - `{SYMBOL}_backtest.json` — configuration, data fingerprint, all strategy
-  results, trade lists, equity curves, monthly returns, comparisons, warnings,
-  and limitations;
+  results, trade lists, equity curves, monthly returns, comparisons, sensitivity
+  scenarios, assumptions, reproducibility metadata, warnings, and limitations;
 - `{SYMBOL}_equity_curve.csv` — daily equity path for every strategy;
 - `{SYMBOL}_trades.csv` — closed-trade records;
 - `{SYMBOL}_strategy_comparison.csv` — one row per strategy.
@@ -221,14 +221,43 @@ For each symbol, `save_report()` writes:
 A combined `backtest_summary.csv` is written at the report root. The CLI runner
 is `scripts/run_backtesting.py`.
 
-## 9. Reproducibility
+## 9. Cost, slippage, and threshold sensitivity
 
-The report records the walk-forward source report fingerprint, the exact
-backtest configuration, the model name, the data period, and the first/last
-execution dates. Rerunning on revised `yfinance` history will change the result;
-the fingerprint makes that visible.
+The backtest report includes a `sensitivity` block with three analyses. All
+scenarios reuse the same chronological prediction rows and the same next-open
+execution rule; only the stated assumption changes.
 
-## 10. Limitations and responsible use
+1. **Cost/slippage grid.** Default cost scenarios are `0, 5, 10, 25, 50` bps and
+   default slippage scenarios are `0, 5, 10, 25` bps. The default analysis is the
+   20-point cross-product. Each scenario reports total return, annualized
+   return, Sharpe, maximum drawdown, final equity, closed trades, and total
+   transaction costs for the model-directional, threshold, and buy-and-hold
+   strategies.
+2. **Threshold sensitivity.** Default buy/sell threshold pairs are `(0, 0)`,
+   `(0.005, -0.005)`, `(0.01, -0.01)`, and `(0.02, -0.02)`. Each row reports the
+   same strategy metrics for the threshold strategy.
+3. **Configurability.** API callers may supply up to 20 values per list. Lists
+   and threshold pairs are validated before the job starts. `run_sensitivity:
+   false` records that the analysis was skipped.
+
+A large grid increases multiple-comparison risk. The best-looking scenario is
+descriptive and should not be presented as a forecast or as evidence of
+guaranteed profitability. See [API_DOCUMENTATION.md](API_DOCUMENTATION.md) for
+the request fields.
+
+## 10. Reproducibility
+
+The report records the walk-forward source report ID and SHA-256 hash, the exact
+backtest configuration, the sensitivity configuration, the model name, the
+evaluation configuration, feature schema, random seed, dataset period,
+data fingerprint, data source, synthetic-data flag, and generation time.
+
+Signal and execution dates are validated: every execution date must be strictly
+after its signal date. Rerunning on revised `yfinance` history will change the
+result; the fingerprint makes that visible. Reports derived from the synthetic
+test fixture are labelled `synthetic_test_data` and are not market evidence.
+
+## 11. Limitations and responsible use
 
 - One historical path cannot distinguish skill from luck.
 - The backtest trades the same walk-forward predictions used for evaluation;
@@ -237,4 +266,6 @@ the fingerprint makes that visible.
 - The forced final liquidation is an accounting convention, not a trading rule.
 - The strategy set is small and was chosen for interpretability, not optimized
   on the holdout.
+- Cost/slippage and threshold scenarios multiply the number of comparisons; the
+  best scenario is especially prone to selection bias.
 - No result here is a recommendation to buy, sell, or hold any security.

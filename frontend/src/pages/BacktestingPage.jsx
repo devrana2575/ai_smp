@@ -50,6 +50,7 @@ const defaultOptions = {
   model: "",
   folds: 5,
   holdout_fraction: 0.2,
+  run_sensitivity: true,
 };
 
 const numberOrUndefined = (value) => {
@@ -120,6 +121,7 @@ const BacktestingPage = () => {
         max_capital_allocation: numberOrUndefined(options.max_capital_allocation),
         buy_threshold: numberOrUndefined(options.buy_threshold),
         sell_threshold: numberOrUndefined(options.sell_threshold),
+        run_sensitivity: options.run_sensitivity,
       };
       const response = await researchService.runBacktest(symbol, payload);
       setJob(response.job);
@@ -159,6 +161,7 @@ const BacktestingPage = () => {
   }));
   const tradeRows = (strategy?.trades || []).slice(0, 200);
   const metrics = strategy?.equity_metrics || {};
+  const sensitivity = report?.sensitivity;
 
   return (
     <div className="space-y-6">
@@ -220,6 +223,17 @@ const BacktestingPage = () => {
                 onChange={(event) => updateOption("model", event.target.value)}
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 mt-6">
+              <input
+                type="checkbox"
+                checked={options.run_sensitivity}
+                onChange={(event) =>
+                  updateOption("run_sensitivity", event.target.checked)
+                }
+                disabled={loading}
+              />
+              Run cost, slippage, and threshold sensitivity
+            </label>
           </div>
           {!isAdmin && (
             <p className="text-xs text-amber-700 mt-3">
@@ -390,6 +404,118 @@ const BacktestingPage = () => {
             />
           </Section>
 
+          <Section
+            title="Cost, slippage, and threshold sensitivity"
+            subtitle="Each row reuses the same chronological out-of-sample predictions. Only the named assumption changes. A good scenario is descriptive, not a forecast."
+          >
+            {sensitivity?.enabled ? (
+              <div className="space-y-6">
+                <SimpleTable
+                  columns={[
+                    {
+                      key: "cost",
+                      label: "Cost (bps)",
+                      align: "right",
+                      render: (row) => formatNumber(row.transaction_cost_bps, 0),
+                    },
+                    {
+                      key: "slippage",
+                      label: "Slippage (bps)",
+                      align: "right",
+                      render: (row) => formatNumber(row.slippage_bps, 0),
+                    },
+                    {
+                      key: "model",
+                      label: "Model return",
+                      align: "center",
+                      render: (row) =>
+                        formatPct(
+                          row.strategies?.model_directional?.total_return_pct,
+                          2
+                        ),
+                    },
+                    {
+                      key: "threshold",
+                      label: "Threshold return",
+                      align: "center",
+                      render: (row) =>
+                        formatPct(
+                          row.strategies?.threshold?.total_return_pct,
+                          2
+                        ),
+                    },
+                    {
+                      key: "buyHold",
+                      label: "Buy-and-hold return",
+                      align: "center",
+                      render: (row) =>
+                        formatPct(
+                          row.strategies?.buy_and_hold?.total_return_pct,
+                          2
+                        ),
+                    },
+                  ]}
+                  rows={(sensitivity.scenarios || []).map((row, index) => ({
+                    ...row,
+                    key: `${row.transaction_cost_bps}-${row.slippage_bps}-${index}`,
+                  }))}
+                />
+                <SimpleTable
+                  columns={[
+                    {
+                      key: "buy",
+                      label: "Buy threshold",
+                      align: "right",
+                      render: (row) => formatNumber(row.buy_threshold, 4),
+                    },
+                    {
+                      key: "sell",
+                      label: "Sell threshold",
+                      align: "right",
+                      render: (row) => formatNumber(row.sell_threshold, 4),
+                    },
+                    {
+                      key: "return",
+                      label: "Total return",
+                      align: "center",
+                      render: (row) => formatPct(row.total_return_pct, 2),
+                    },
+                    {
+                      key: "sharpe",
+                      label: "Sharpe",
+                      align: "center",
+                      render: (row) => formatNumber(row.sharpe_ratio, 2),
+                    },
+                    {
+                      key: "drawdown",
+                      label: "Max drawdown",
+                      align: "center",
+                      render: (row) => formatPct(row.max_drawdown_pct, 2),
+                    },
+                    {
+                      key: "trades",
+                      label: "Closed trades",
+                      align: "center",
+                      render: (row) => row.closed_trades ?? "—",
+                    },
+                  ]}
+                  rows={(sensitivity.threshold_sensitivity || []).map(
+                    (row, index) => ({
+                      ...row,
+                      key: `${row.buy_threshold}-${row.sell_threshold}-${index}`,
+                    })
+                  )}
+                />
+                <WarningList warnings={sensitivity.warnings} />
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Sensitivity analysis was disabled for this run. Re-run the
+                backtest with sensitivity enabled to compare assumptions.
+              </p>
+            )}
+          </Section>
+
           <Section title="Execution scope" subtitle="Out-of-sample prediction rows only. The final holdout is part of this simulation but is not used to choose the model.">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
               <div><p className="text-xs text-gray-500">Generated</p><p className="font-medium">{formatDate(report.generated_at)}</p></div>
@@ -397,6 +523,14 @@ const BacktestingPage = () => {
               <div><p className="text-xs text-gray-500">Fingerprint</p><p className="font-mono text-xs break-all">{report.data?.data_fingerprint_sha256}</p></div>
               <div><p className="text-xs text-gray-500">Status</p><StatusBadge status={report.status} /></div>
             </div>
+            {report.reproducibility && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 text-sm mt-4 pt-4 border-t border-slate-100">
+                <div><p className="text-xs text-gray-500">Evaluation report</p><p className="font-mono text-xs break-all">{report.reproducibility.evaluation_report_id}</p></div>
+                <div><p className="text-xs text-gray-500">Random seed</p><p className="font-medium">{report.reproducibility.random_seed ?? "—"}</p></div>
+                <div><p className="text-xs text-gray-500">Data source</p><p className="font-medium">{report.reproducibility.data_source}{report.reproducibility.is_synthetic ? " (synthetic test data)" : ""}</p></div>
+                <div><p className="text-xs text-gray-500">Report hash</p><p className="font-mono text-xs break-all">{report.reproducibility.evaluation_report_sha256}</p></div>
+              </div>
+            )}
           </Section>
 
           <WarningList warnings={report.warnings} />
