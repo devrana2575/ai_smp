@@ -38,7 +38,7 @@ async def require_service_token(
 
     expected = (settings.SERVICE_AUTH_TOKEN or "").strip()
     if not expected:
-        # Failing closed is safer than silently exposing research and registry
+        # Failing closed is safer than silently exposing prediction and data
         # endpoints when the deployment forgot to configure authentication.
         raise HTTPException(
             status_code=503,

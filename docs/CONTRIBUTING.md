@@ -1,8 +1,8 @@
 # Contributing
 
-Thank you for improving AI_SMP. This project combines a legacy prediction app
-with research and model-lifecycle features, so contributions must preserve the
-existing application while keeping evaluation honest.
+Thank you for improving AI_SMP. The project combines a React frontend, an
+Express gateway, MongoDB storage, and an internal FastAPI machine-learning
+service.
 
 ## 1. Before you start
 
@@ -10,17 +10,14 @@ existing application while keeping evaluation honest.
   reviewed first.
 - Do not include real brokerage credentials, API keys, JWTs, `.env` files, or
   private market data in a contribution.
-- If your change affects evaluation, backtesting, model selection, or activation,
-  read [EVALUATION_METHODOLOGY.md](EVALUATION_METHODOLOGY.md),
-  [BACKTESTING_METHODOLOGY.md](BACKTESTING_METHODOLOGY.md), and
-  [MODEL_REGISTRY.md](MODEL_REGISTRY.md) before coding.
+- If your change affects features, model selection, or prediction behavior, read
+  [ML_METHODOLOGY.md](ML_METHODOLOGY.md) before coding.
 
 ## 2. Branching and scope
 
 - Branch from the current integration branch.
 - Use descriptive names: `feature/...`, `fix/...`, `docs/...`, `test/...`.
-- Keep each pull request focused. Do not mix refactors, new experiments, and
-  unrelated UI changes.
+- Keep each pull request focused. Do not mix refactors and unrelated UI changes.
 - Do not rewrite history or force-push a shared branch.
 - Do not delete or overwrite another contributor's artifacts or uncommitted work.
 
@@ -31,7 +28,7 @@ Follow [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md). In short:
 ```powershell
 cd ai-service
 .\venv\Scripts\python.exe -m pytest -q
-ruff check app tests scripts
+ruff check .
 
 cd ..\backend
 npm test
@@ -50,13 +47,11 @@ your environment, say so explicitly in the pull request.
 ### Python
 
 - Follow the existing module layout and naming.
-- Keep research services separate from production training/prediction.
 - Add type hints for new public functions where practical.
 - Use `ruff check` with the repository's `ruff.toml` baseline.
 - Do not add broad `except Exception` blocks without a reason; API boundaries may
   translate service errors, but internal code should fail clearly.
-- Do not use random shuffling or future-looking features in training/evaluation
-  code.
+- Do not use random shuffling or future-looking features in training code.
 
 ### JavaScript / React
 
@@ -68,83 +63,57 @@ your environment, say so explicitly in the pull request.
 
 ### Documentation
 
-- Update the relevant methodology or API document when behavior changes.
-- Label simulated results and evaluation periods.
-- Do not market backtest returns as expected future performance.
+- Update the relevant API, architecture, or methodology document when behavior
+  changes.
+- Describe model outputs as estimates, not guarantees.
+- Do not market historical performance as expected future performance.
 
-## 5. Non-negotiable research rules
-
-1. **No leakage.** No shuffling, no future-derived features, no target
-   contamination across folds.
-2. **Locked holdout.** Never tune, select, or assign ensemble weights using the
-   final holdout.
-3. **Identical boundaries.** When comparing target formulations, reuse the same
-   dataset construction, folds, and holdout split.
-4. **Abstention is not error.** A zero predicted movement is an abstention.
-   Report directional accuracy only on non-zero signals and include coverage and
-   abstention rate.
-5. **Next-open execution.** Backtest signals form at the feature-day close and
-   execute at the next session's open.
-6. **No fabricated metrics.** If a metric is undefined, return `null` and explain
-   why. Do not substitute zero or a made-up score.
-7. **No overwriting production artifacts.** Research candidates go under
-   `model_registry/`; activation is explicit and audited.
-8. **Do not claim profitability.** Report actual results, including negative
-   ones, and state the limitations.
-
-Any pull request that changes these rules needs an explicit methodology review.
-
-## 6. Tests
+## 5. Tests
 
 Add or update tests for:
 
-- new metric definitions and edge cases (empty arrays, zero movement, zero
-  actuals, non-finite values);
-- fold construction and holdout isolation;
-- backtest execution timing, costs, and trade accounting;
-- registry lifecycle, artifact path validation, and rollback;
-- monitoring pagination, actuals matching, and drift thresholds;
-- API validation, authentication boundaries, and structured errors.
+- new feature engineering or model behavior;
+- metric definitions and edge cases (empty arrays, non-finite values);
+- API validation and authentication boundaries;
+- frontend state and API integration changes where practical.
 
 Use synthetic data in unit tests. Do not make tests depend on live Yahoo Finance
 or a production MongoDB. If an integration test needs external data, mark it
 clearly and skip it by default.
 
-Current suite: `89` Python tests and `3` Node tests. Keep them green.
+Current suite: `48` Python tests and `5` Node tests. Keep them green.
 
-## 7. Commit messages
+## 6. Commit messages
 
 Use a short imperative subject and a body that explains the reasoning:
 
 ```text
-feat: add abstention-aware directional metrics
+fix: validate symbols before fetching market data
 
-Zero predicted movement now counts as abstention. Coverage and abstention
-rate are reported, and undefined directional accuracy is null instead of zero.
+Invalid symbols now fail with a clear validation error instead of a network
+request.
 ```
 
 Prefixes: `feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`, `security:`.
 
-Do not commit generated secrets, personal `.env` values, or huge report files
+Do not commit generated secrets, personal `.env` values, or large model files
 unless the repository policy explicitly calls for them.
 
-## 8. Pull-request checklist
+## 7. Pull-request checklist
 
 - [ ] The change is scoped and described.
-- [ ] Existing legacy behavior is preserved or the change is documented.
+- [ ] Existing behavior is preserved or the change is documented.
 - [ ] New behavior has tests.
 - [ ] `pytest`, `ruff`, backend tests/lint, frontend lint/build pass.
 - [ ] No secrets or private data are included.
-- [ ] No production model or `saved_models/` artifact is overwritten.
-- [ ] Evaluation/backtest changes preserve chronological integrity and the
-  locked holdout.
-- [ ] Results are labelled as simulations and include limitations.
+- [ ] No production model or `saved_models/` artifact is overwritten without a
+  backup and a documented reason.
 - [ ] Documentation and API examples are updated.
 - [ ] Dependency changes are reviewed; do not run `npm audit fix --force`
   blindly.
 - [ ] The diff contains no unrelated formatting churn.
 
-## 9. Reporting bugs and security issues
+## 8. Reporting bugs and security issues
 
 For ordinary bugs, include:
 
@@ -154,11 +123,11 @@ For ordinary bugs, include:
 - relevant logs with secrets removed;
 - Python/Node versions and OS.
 
-For a security issue (auth bypass, path traversal, secret exposure, unsafe
-artifact loading), do not open a public issue with exploit details. Contact the
-maintainer privately or use the repository's security-reporting channel.
+For a security issue (auth bypass, path traversal, secret exposure), do not open
+a public issue with exploit details. Contact the maintainer privately or use the
+repository's security-reporting channel.
 
-## 10. License
+## 9. License
 
 By contributing, you agree that your contribution is licensed under the
 repository's MIT license.

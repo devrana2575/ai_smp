@@ -13,27 +13,27 @@ def test_health_is_public_but_api_requires_service_token():
     public = TestClient(app)
     assert public.get("/health").status_code == 200
 
-    missing = public.get("/api/v2/reports")
+    missing = public.get("/api/evaluation-summary")
     assert missing.status_code == 401
     assert missing.json()["detail"]["error"]["code"] == "invalid_service_token"
 
     wrong = public.get(
-        "/api/v2/reports", headers={SERVICE_TOKEN_HEADER: "wrong-token"}
+        "/api/evaluation-summary", headers={SERVICE_TOKEN_HEADER: "wrong-token"}
     )
     assert wrong.status_code == 401
 
 
 def test_authorized_service_call_succeeds():
     client = TestClient(app, headers=AUTH_HEADERS)
-    response = client.get("/api/v2/reports")
+    response = client.get("/api/evaluation-summary")
     assert response.status_code == 200
-    assert response.json()["schema_version"] == "1.0"
+    assert "evaluation_source" in response.json()
 
 
 def test_api_fails_closed_when_token_is_not_configured(monkeypatch):
     monkeypatch.setattr(settings, "SERVICE_AUTH_TOKEN", "")
     client = TestClient(app, headers=AUTH_HEADERS)
-    response = client.get("/api/v2/reports")
+    response = client.get("/api/evaluation-summary")
     assert response.status_code == 503
     assert (
         response.json()["detail"]["error"]["code"]

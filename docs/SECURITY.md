@@ -1,7 +1,7 @@
 # Security
 
-This document describes the security posture of AI_SMP after the production
-readiness hardening. It is an engineering baseline, not a certification.
+This document describes the security posture of AI_SMP. It is an engineering
+baseline, not a certification.
 
 ## 1. Trust boundaries
 
@@ -11,13 +11,13 @@ Browser
   v
 Express backend  --- shared service token --->  FastAPI AI service
   |                                              |
-  | MongoDB                                      | local report/registry files
+  | MongoDB                                      | saved_models/ files
 ```
 
 - The browser authenticates to Express with a JWT and never receives the
   internal service token.
 - Express is the public API boundary. It enforces JWT authentication, admin-only
-  lifecycle operations, rate limits, symbol validation, and CORS.
+  company operations, rate limits, symbol validation, and CORS.
 - FastAPI is an internal service. Every API router requires the shared service
   token; only `/health` is public.
 - The AI service has no end-user accounts. Do not expose its port publicly.
@@ -36,19 +36,17 @@ Express backend  --- shared service token --->  FastAPI AI service
 - Public route: `GET /health` only
 - Interactive docs and OpenAPI: disabled unless `ENABLE_DOCS=true`
 
-The legacy prediction controller and all v2 research proxies use the shared
-`backend/src/services/aiClient.js`, which forwards the token server-side.
+The prediction controller uses `backend/src/services/aiClient.js`, which
+forwards the token server-side.
 
 ## 3. End-user authorization
 
 Express keeps the existing JWT behavior. `auth` rejects missing/invalid tokens;
-`adminOnly` protects candidate training, evidence attachment, approval,
-activation, rollback, deactivation, evaluation runs, return experiments,
-backtests, and actual-outcome updates. Registered-model prediction requires a
-JWT but is not admin-only.
+`adminOnly` protects company create, update, and delete operations. Prediction,
+market-data, and saved-report reads require a JWT but are not admin-only.
 
-Frontend authentication and navigation are unchanged. Browser requests continue
-to go to Express, never to FastAPI.
+Frontend authentication and navigation remain protected. Browser requests
+continue to go to Express, never directly to FastAPI.
 
 ## 4. Configuration safety
 
@@ -96,81 +94,34 @@ Backend:
 
 - FastAPI has a global exception handler that logs the exception server-side and
   returns a generic `internal_error` payload.
-- Report-read failures do not return filesystem paths or parser details.
 - Express logs structured error context with a request ID. Production 5xx
   responses return `Internal server error`; stack traces are development-only.
 - Request IDs are accepted from `X-Request-Id` or generated with `crypto`.
 - Do not include request bodies or credentials in production error logs.
 
-## 8. Model registry safety
-
-- Registry paths are checked with `realpath`; the registry cannot equal or live
-  inside `saved_models/`.
-- Artifact manifests must contain exactly the five model artifacts and the SVR
-  scaler.
-- Artifact names must be plain `.pkl` filenames and must resolve inside the
-  version directory.
-- Feature schema, target formulation, model list, and SVR-scaler presence are
-  validated before prediction or activation.
-- Approval requires a completed walk-forward report. The service validates the
-  report status, symbol, feature schema, selected model, development metrics,
-  baseline comparison, dataset fingerprint, seed, and generation time.
-- The registry stores the report ID, SHA-256 hash, metrics, baseline comparison,
-  feature schema, dataset period, seed, and evaluation configuration.
-- Activation requires prior explicit approval with attached evidence. It never
-  auto-approves.
-- Rollback requires the previous version to have been approved and to still
-  validate.
-- No research action writes to `saved_models/`.
-
-## 9. Backtesting integrity
-
-- Only chronological out-of-sample walk-forward rows are traded.
-- Every execution date must be strictly after its signal date.
-- Signals use the feature-day close; execution uses the next session open.
-- Costs and slippage are charged on both entry and exit.
-- Cost/slippage/threshold sensitivity scenarios reuse the same rows and
-  execution assumptions.
-- Reports record source report ID/hash, dataset period, config, feature schema,
-  model version, seed, generation time, and synthetic-data status.
-- Backtest results are historical simulations. They are never presented as
-  guaranteed future profitability.
-
-## 10. Tests
+## 8. Tests
 
 Security and behavioral tests include:
 
 - `ai-service/tests/test_security.py`: public health, unauthorized/authorized
   service calls, fail-closed token configuration, legacy route protection,
   production config rejection/acceptance.
-- `ai-service/tests/test_model_registry_service.py`: evidence-backed approval,
-  missing evidence rejection, schema mismatch rejection, explicit activation,
-  artifact manifest validation, registry path guard.
-- `ai-service/tests/test_backtesting_service.py`: causal date rejection,
-  sensitivity structure, cost impact, threshold validation.
-- `ai-service/tests/test_synthetic_fixture.py`: offline synthetic dataset.
+- `ai-service/tests/test_data_service.py`: symbol validation and data cleaning.
+- `ai-service/tests/test_market_regime.py`: market-regime classification.
 - `backend/tests/config.test.js`: service-token forwarding, production config
   validation, CORS parsing.
-- `backend/tests/research.controller.test.js`: symbol validation and structured
-  error translation.
 
-## 11. Residual risks and limitations
+## 9. Residual risks and limitations
 
 - Service-token authentication protects against unauthenticated direct access,
   but any process with the token can call the AI service. Protect the secret and
   the network path.
 - The service token is static. Rotation requires coordinated restarts unless a
   secret manager or token exchange is added.
-- File-backed registry and report directories rely on host-level access control.
-  A filesystem writer can tamper with files; hashes detect some changes but are
-  not a tamper-proof ledger.
-- In-process locks are not safe for multiple AI-service writers across hosts.
-  Run one research writer or add a shared lock/store.
+- `saved_models/` relies on host-level access control. A filesystem writer can
+  tamper with model artifacts.
 - Rate limiting is in-memory per Express instance. A multi-instance deployment
   needs a shared rate-limit store. The global `/api/` budget defaults to 600
   requests per 15 minutes in production and 3,000 in development; tune it with
   `API_RATE_LIMIT_MAX` and `API_RATE_LIMIT_WINDOW_MS`.
-- Job failures may expose an exception type/message to authenticated users; do
-  not place secrets in exception messages.
-- No independent penetration test, dependency-vulnerability audit, or formal
-  threat model has been performed.
+- No independent penetration test or formal threat model has been performed.

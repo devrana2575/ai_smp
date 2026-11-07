@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.routes import prediction_routes, research_routes, stock_routes
+from app.routes import prediction_routes, stock_routes
 from app.security import require_service_token
 
 logging.basicConfig(
@@ -46,7 +46,6 @@ app.add_middleware(
 service_auth = [Depends(require_service_token)]
 app.include_router(stock_routes.router, dependencies=service_auth)
 app.include_router(prediction_routes.router, dependencies=service_auth)
-app.include_router(research_routes.router, dependencies=service_auth)
 
 
 @app.exception_handler(Exception)

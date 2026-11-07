@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import StatsCard from "../components/dashboard/StatsCard";
 import RecentPredictions from "../components/dashboard/RecentPredictions";
 import { predictionService } from "../services/predictionService";
@@ -119,39 +118,6 @@ const DashboardPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-3">
           <RecentPredictions predictions={stats?.recentPredictions} />
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-md p-5 md:p-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-gray-800">Research & model lifecycle</h3>
-            <p className="text-sm text-gray-500">
-              Walk-forward evaluation, return-target experiments, simulated backtests, versioned model activation, and prediction monitoring.
-              These views report out-of-sample research results, not a promise of profitability.
-            </p>
-          </div>
-          <Link to="/research/walk-forward" className="btn-primary text-sm whitespace-nowrap">
-            Open research platform
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 mt-5">
-          {[
-            ["/research/walk-forward", "Walk-forward", "Chronological folds and locked holdout"],
-            ["/research/return-forecasting", "Return targets", "Absolute vs simple vs log return"],
-            ["/research/backtesting", "Backtesting", "Costs, slippage, and risk metrics"],
-            ["/research/registry", "Model registry", "Approve, activate, and roll back"],
-            ["/research/monitoring", "Monitoring", "Prediction outcomes and feature drift"],
-          ].map(([to, title, description]) => (
-            <Link
-              key={to}
-              to={to}
-              className="rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50 transition"
-            >
-              <p className="font-semibold text-gray-800 text-sm">{title}</p>
-              <p className="text-xs text-gray-500 mt-1">{description}</p>
-            </Link>
-          ))}
         </div>
       </div>
     </div>
