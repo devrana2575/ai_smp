@@ -13,7 +13,6 @@ const {
 const authRoutes = require("./routes/auth.routes");
 const companyRoutes = require("./routes/company.routes");
 const predictionRoutes = require("./routes/prediction.routes");
-const researchRoutes = require("./routes/research.routes");
 
 if (process.env.NODE_ENV !== "test") {
   assertValidConfig();
@@ -62,7 +61,6 @@ app.use("/api/", limiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/predictions", predictionRoutes);
-app.use("/api/v2", researchRoutes);
 
 app.get("/health", (req, res) => {
   res.json({ status: "healthy", service: "AI-SMP Backend" });

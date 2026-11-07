@@ -1,8 +1,8 @@
 # Deployment
 
-This guide describes a conservative single-host deployment for AI_SMP 2.0.
-Adjust process supervision, secret storage, and storage durability to your
-environment. Nothing here is a guarantee of trading performance.
+This guide describes a conservative single-host deployment for AI_SMP. Adjust
+process supervision, secret storage, and storage durability to your
+environment.
 
 ## 1. Topology
 
@@ -20,7 +20,7 @@ Express backend (public API, port 5000)
    +--- shared service token ---> FastAPI AI service (internal, port 8000)
                                       |
                                       +--> yfinance network access
-                                      +--> evaluation/backtest/registry files
+                                      +--> saved_models/ artifacts
 ```
 
 Run the AI service on loopback or a private network. Only the reverse proxy
@@ -124,8 +124,8 @@ crash. Send logs to a durable, access-controlled destination.
   by default.
 - Preserve `Authorization` and `X-Request-Id`; do not forward the internal
   service token from clients.
-- Set reasonable request/read timeouts. Expensive research calls return HTTP 202
-  and are polled, so long-held browser connections should not be required.
+- Set reasonable request/read timeouts that account for training and prediction
+  requests.
 
 ## 6. CORS
 
@@ -139,17 +139,12 @@ Persistent paths:
 
 | Path | Contents |
 |------|----------|
-| `ai-service/evaluation_reports/` | Walk-forward reports and summary CSV |
-| `ai-service/research_reports/` | Return experiments and job state |
-| `ai-service/backtesting_reports/` | Backtest JSON, equity, trades, comparisons |
-| `ai-service/model_registry/` | Version metadata, audit log, candidate artifacts |
-| `ai-service/monitoring/` | Prediction tracking and actuals |
-| `ai-service/saved_models/` | Legacy production artifacts; do not overwrite |
+| MongoDB | Users, companies, prediction history |
+| `ai-service/saved_models/` | Trained model artifacts and metrics |
 
-Back up registry metadata, audit log, evaluation reports, and monitoring data
-together. Back up legacy `saved_models/` separately and never let research jobs
-write to it. Restore tests should verify that a candidate's artifact schema still
-matches the running feature engineering schema before activation.
+Back up MongoDB and `saved_models/` together. Restore tests should verify that
+the saved artifacts match the running feature-engineering schema before serving
+predictions.
 
 ## 8. Startup and health checks
 
@@ -168,32 +163,22 @@ matches the running feature engineering schema before activation.
 3. Deploy the backend with the matching `AI_SERVICE_TOKEN`; verify `/health` and
    one authenticated read request.
 4. Deploy the frontend build.
-5. Run one authorized research read through Express.
-6. Run a short evaluation/backtest in a non-production environment before
-   relying on report generation.
-7. Confirm no request from the public network reaches the AI service directly.
+5. Run one authenticated prediction through Express in a non-production
+   environment.
+6. Confirm no request from the public network reaches the AI service directly.
 
 Rolling the service token requires either a coordinated restart or a temporary
 rotation mechanism; the current implementation supports one active token.
 
-## 10. Model promotion procedure
+## 10. Model training and replacement
 
-1. Run a completed walk-forward evaluation for the symbol.
-2. Train a candidate under `model_registry/` (never `saved_models/`).
-3. Attach the completed evaluation report as evidence.
-4. Review metrics, baseline comparison, feature schema, dataset period, seed,
-   report hash, and `candidate_vs_active`.
-5. Approve explicitly with an admin account.
-6. Activate explicitly. Activation re-validates approval, evidence, and
-   artifacts.
-7. Run a registered-model prediction and confirm the version and timestamp.
-8. Monitor completed predictions and drift.
-9. Roll back to a previously approved version if documented deterioration
-   occurs.
-
-Never activate a candidate solely because it has the highest backtest return.
-Backtests are historical simulations and are not evidence of future
-profitability.
+1. Confirm the symbol has enough clean history.
+2. Train through `POST /api/predictions/train/:symbol`.
+3. Review the returned metrics and model status.
+4. Run a prediction and confirm the response.
+5. Keep a backup of the previous `saved_models/{SYMBOL}/` directory so a model
+   update can be rolled back.
+6. Never present model estimates as guaranteed future performance.
 
 ## 11. CI and release checks
 
@@ -209,13 +194,8 @@ build failure.
 
 ## 12. Known operational limitations
 
-- Job execution is in-process; a process restart loses running jobs. Job state
-  files remain for inspection.
-- `JOB_TIMEOUT_SECONDS` is reserved; running jobs are not currently cancelled.
-- File-backed registry/monitoring locks are process-local. Use one writer or
-  add a shared store before scaling across hosts.
 - In-memory rate limits are per backend instance.
-- yfinance availability and vendor revisions can change evaluation results; the
-  data fingerprint records what was used.
-- The synthetic test fixture is not market data and must not be used for
-  production reporting.
+- yfinance availability and vendor revisions can change model inputs.
+- Training and prediction depend on outbound network access to Yahoo Finance.
+- MongoDB must be available for authentication, company management, and
+  prediction history.

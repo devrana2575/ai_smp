@@ -1,8 +1,8 @@
 # Development Setup
 
-This guide sets up the full AI_SMP 2.0 stack locally: FastAPI AI service,
-Express gateway, MongoDB, and the React frontend. It also covers the research
-CLI, tests, linting, and common Windows issues.
+This guide sets up the full AI_SMP stack locally: FastAPI AI service, Express
+gateway, MongoDB, and the React frontend. It also covers tests, linting, and
+common Windows issues.
 
 ## 1. Prerequisites
 
@@ -26,7 +26,7 @@ git switch -c feature/your-change
 ```
 
 Do not commit `.env` files, tokens, `node_modules/`, `venv/`, `dist/`, or local
-model/report artifacts.
+model artifacts.
 
 ## 3. AI service
 
@@ -206,47 +206,15 @@ Invoke-RestMethod -Method Post http://localhost:5000/api/companies/seed `
   -Headers @{ Authorization = "Bearer $token" }
 ```
 
-The seed endpoint requires authentication but not admin. Creating/updating/
-deleting companies and all model-lifecycle actions require an admin user.
-Promote an account in MongoDB if needed:
+The seed endpoint requires authentication but not admin. Creating, updating, and
+deleting companies require an admin user. Promote an account in MongoDB if
+needed:
 
 ```javascript
 db.users.updateOne({ email: "you@example.com" }, { $set: { role: "admin" } })
 ```
 
-## 7. Research CLI
-
-Run from `ai-service/` after activating the venv:
-
-```powershell
-# Walk-forward evaluation
-.\venv\Scripts\python.exe -m scripts.run_walk_forward_evaluation `
-  COALINDIA.NS HINDALCO.NS HINDZINC.NS JINDALSTEL.NS JSWSTEEL.NS TATASTEEL.NS
-
-# Return-target experiments
-.\venv\Scripts\python.exe -m scripts.run_return_forecasting `
-  COALINDIA.NS HINDALCO.NS HINDZINC.NS JINDALSTEL.NS JSWSTEEL.NS TATASTEEL.NS
-
-# Backtests
-.\venv\Scripts\python.exe -m scripts.run_backtesting `
-  COALINDIA.NS HINDALCO.NS HINDZINC.NS JINDALSTEL.NS JSWSTEEL.NS TATASTEEL.NS
-```
-
-Outputs:
-
-| Command | Output |
-|---------|--------|
-| Walk-forward | `evaluation_reports/{SYMBOL}_walk_forward.json`, `walk_forward_summary.csv` |
-| Return experiments | `research_reports/return_forecasting/{SYMBOL}_return_forecasting.json`, summary CSV |
-| Backtests | `backtesting_reports/{SYMBOL}_backtest.json`, equity/trades/comparison CSVs, summary CSV |
-| Background jobs | `research_reports/jobs/{job_id}.json` |
-| Registry | `model_registry/registry.json`, `audit.jsonl`, `artifacts/...` |
-| Monitoring | `monitoring/predictions/{SYMBOL}.jsonl` |
-
-These are research artifacts. They are separate from the legacy
-`saved_models/` directory.
-
-## 8. Tests, lint, and build
+## 7. Tests, lint, and build
 
 ### AI service
 
@@ -254,13 +222,13 @@ These are research artifacts. They are separate from the legacy
 cd ai-service
 .\venv\Scripts\python.exe -m pytest -q
 ruff check .
-.\venv\Scripts\python.exe -m compileall -q app tests scripts
+.\venv\Scripts\python.exe -m compileall -q app tests
 ```
 
-Current baseline in this audit: `109 passed`; Ruff `0.16.7` and compileall pass.
-The tests set a test-only service token in `tests/conftest.py`. If your
-environment has no `ruff`, use the pinned `ruff` from `requirements-dev.txt` or
-a globally installed matching version.
+Current baseline: `48 passed`; Ruff and compileall pass. The tests set a
+test-only service token in `tests/conftest.py`. If your environment has no
+`ruff`, use the pinned `ruff` from `requirements-dev.txt` or a globally
+installed matching version.
 
 ### Backend
 
@@ -270,11 +238,9 @@ npm test
 npm run lint
 node --check src/app.js
 node --check src/config/env.js
-node --check src/routes/research.routes.js
-node --check src/controllers/research.controller.js
 ```
 
-Current baseline in this audit: `8 passed`; ESLint passes.
+Current baseline: `5 passed`; ESLint passes.
 
 ### Frontend
 
@@ -299,7 +265,7 @@ expected for the single-page bundle and is not a build failure.
 Do not mark the workflow successful unless these commands actually pass. Run
 the same commands locally before pushing.
 
-## 9. Environment variables
+## 8. Environment variables
 
 ### AI service
 
@@ -322,42 +288,6 @@ CORS_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost:8080
 
 Production validation additionally requires `DEBUG=false`, no wildcard CORS
 origins, absolute http(s) origins, and a service token of at least 32 characters.
-
-Research defaults are optional and can be set in `ai-service/.env`:
-
-```dotenv
-EVALUATION_PERIOD=2y
-EVALUATION_FOLDS=5
-EVALUATION_HOLDOUT_FRACTION=0.2
-EVALUATION_MIN_TRAIN_SAMPLES=60
-EVALUATION_MIN_VALIDATION_SAMPLES=10
-EVALUATION_MIN_HOLDOUT_SAMPLES=10
-EVALUATION_INITIAL_TRAIN_FRACTION=0.5
-EVALUATION_REPORT_DIR=...
-RESEARCH_REPORT_DIR=...
-RETURN_REPORT_DIR=...
-BACKTEST_REPORT_DIR=...
-MODEL_REGISTRY_DIR=...
-MONITORING_DIR=...
-JOB_STATE_DIR=...
-JOB_MAX_WORKERS=2
-JOB_TIMEOUT_SECONDS=1800
-BACKTEST_STARTING_CAPITAL=100000
-BACKTEST_TRANSACTION_COST_BPS=5
-BACKTEST_SLIPPAGE_BPS=5
-BACKTEST_MAX_CAPITAL_ALLOCATION=1.0
-BACKTEST_BUY_THRESHOLD=0.005
-BACKTEST_SELL_THRESHOLD=-0.005
-RISK_FREE_RATE=0.0
-TRADING_DAYS_PER_YEAR=252
-DRIFT_PSI_THRESHOLD=0.2
-DRIFT_REFERENCE_ROWS=120
-DRIFT_RECENT_ROWS=30
-```
-
-`JOB_TIMEOUT_SECONDS` is reserved; the in-process job runner does not currently
-cancel a running job at that limit. The Express AI-client timeout
-(`AI_SERVICE_TIMEOUT_MS`) does bound HTTP requests.
 
 ### Backend
 
@@ -384,7 +314,7 @@ the secret values.
 VITE_API_BASE_URL=http://localhost:5000/api
 ```
 
-## 10. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
@@ -393,39 +323,36 @@ VITE_API_BASE_URL=http://localhost:5000/api
 | `yfinance` returns empty data | Network/VPN, invalid symbol, or unavailable period | Check connectivity and symbol; do not fabricate rows |
 | `MongoDB Error` on backend start | MongoDB not running or wrong URI | Start MongoDB and verify `MONGODB_URI` |
 | Frontend gets 401 | Missing/expired token | Sign in again; clear `localStorage` if stale |
-| Frontend gets 403 on train/activate | Account is not admin | Promote the user in MongoDB |
+| Frontend gets 403 on company changes | Account is not admin | Promote the user in MongoDB |
 | Frontend requests fail after port change | `VITE_API_BASE_URL` stale | Update `frontend/.env.local` and restart Vite |
 | CORS error | Origin not allowlisted | Use `localhost:5173`/`3000` or update backend CORS |
-| `rate_limited` | Too many research requests | Wait for the 15-minute window; see [API_DOCUMENTATION.md](API_DOCUMENTATION.md) |
+| `rate_limited` | Too many API requests | Wait for the configured rate-limit window; see [API_DOCUMENTATION.md](API_DOCUMENTATION.md) |
 | `ai_service_unavailable` | AI service down or timed out | Check port 8000, logs, and `AI_SERVICE_TIMEOUT_MS` |
-| `No active registered model` | No candidate activated | Train, approve, and activate a version |
-| `ModelRegistryError: feature schema incompatible` | Feature set changed after training | Retrain a new candidate; do not edit old artifacts |
+| Prediction says models are missing | Symbol not trained | Run `POST /api/predictions/train/:symbol` |
+| `feature schema incompatible` after a code change | Feature set changed after training | Retrain the symbol; do not edit old artifacts |
 | Python 3.13 install fails for scientific packages | Unsupported interpreter | Use Python 3.11/3.12 |
 | ESLint requires a newer Node | Node < 20.19 | Upgrade Node to 20.19+, 22.13+, or 24+ |
 | `npm audit` reports advisories | Existing dependency tree | Review and upgrade deliberately; do not run `audit fix --force` blindly |
 
-## 11. Adding a feature or model safely
+## 10. Adding a feature or model safely
 
 1. Add the model wrapper under `app/models/` and register its factory in the
-   research services and registry.
-2. Keep the feature column order stable. If it changes, bump the artifact schema
-   version and retrain candidates.
+   prediction service.
+2. Keep the feature column order stable. If it changes, retrain the affected
+   symbols and update the artifact metadata.
 3. Add the model to `MODEL_NAMES` and to the equal-weight ensemble only if that
-   is an intentional production/research decision; document the change.
+   is an intentional production decision; document the change.
 4. Add unit tests for fit/predict behavior and artifact loading.
-5. Run walk-forward and return experiments with identical folds/holdout.
-6. Update [ML_METHODOLOGY.md](ML_METHODOLOGY.md) and
-   [EVALUATION_METHODOLOGY.md](EVALUATION_METHODOLOGY.md).
-7. Never overwrite an active registry version. Create a new version and use the
-   approval/activation workflow.
+5. Run the AI-service tests, backend tests, and frontend build.
+6. Update [ML_METHODOLOGY.md](ML_METHODOLOGY.md) and this guide when behavior
+   changes.
 
-## 12. Related documents
+## 11. Related documents
 
 - [README.md](../README.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [ML_METHODOLOGY.md](ML_METHODOLOGY.md)
-- [EVALUATION_METHODOLOGY.md](EVALUATION_METHODOLOGY.md)
-- [BACKTESTING_METHODOLOGY.md](BACKTESTING_METHODOLOGY.md)
-- [MODEL_REGISTRY.md](MODEL_REGISTRY.md)
 - [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+- [SECURITY.md](SECURITY.md)
+- [DEPLOYMENT.md](DEPLOYMENT.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
